@@ -81,6 +81,14 @@ class SearchEvent(BaseModel):
     total_leads: Optional[int] = None
 
 
+class DetectFiltersRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=500)
+
+
+class DetectFiltersResponse(BaseModel):
+    filters: dict[str, str | None]
+
+
 class SearchRecord(BaseModel):
     id: str
     query: str
