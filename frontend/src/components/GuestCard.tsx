@@ -1,7 +1,7 @@
-import React from 'react';
 import { Users } from 'lucide-react';
 import { Guest } from '../types';
 import { Card, CardContent } from './Card';
+import { ProfileAvatar } from './ProfileAvatar';
 interface GuestCardProps {
   guest: Guest;
   onSelect: (guest: Guest) => void;
@@ -26,10 +26,10 @@ export function GuestCard({ guest, onSelect, isSelected }: GuestCardProps) {
       aria-label={`View ${guest.name}`}>
       
       <CardContent className="p-4 flex items-center gap-4">
-        <img
-          src={guest.profile_image_url}
-          alt={guest.name}
-          className="w-11 h-11 rounded-full object-cover shrink-0" />
+        <ProfileAvatar
+          name={guest.name}
+          handle={guest.twitter_handle}
+          profileImageUrl={guest.profile_image_url} />
         
 
         <div className="flex-1 min-w-0">

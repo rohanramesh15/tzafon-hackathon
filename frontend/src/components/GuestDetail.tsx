@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Users, Copy, ExternalLink, Check } from 'lucide-react';
 import { Guest } from '../types';
+import { ProfileAvatar } from './ProfileAvatar';
 import {
   Sheet,
   SheetContent,
@@ -41,10 +42,12 @@ export function GuestDetail({ guest, open, onOpenChange }: GuestDetailProps) {
         <>
             <SheetHeader className="p-6 space-y-0">
               <div className="flex items-start gap-4">
-                <img
-                src={guest.profile_image_url}
-                alt={guest.name}
-                className="w-14 h-14 rounded-full object-cover shrink-0" />
+                <ProfileAvatar
+                name={guest.name}
+                handle={guest.twitter_handle}
+                profileImageUrl={guest.profile_image_url}
+                className="w-14 h-14"
+                iconClassName="w-6 h-6" />
               
                 <div className="flex-1 min-w-0">
                   <SheetTitle className="text-lg font-semibold text-foreground truncate text-left">

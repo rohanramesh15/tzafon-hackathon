@@ -9,6 +9,15 @@ Juicebox for podcast guest discovery. A podcaster types a natural language descr
 
 ---
 
+## Current Status (as of May 9, 2026 — 2pm)
+
+- [x] **Frontend (Person C)** — UI built via Magic Patterns, wired to backend via SSE, mock + real modes, filters, CSV export, detail sheet, copy DM, empty/searching/done/error states all handled
+- [x] **Backend API (Person B)** — FastAPI server with `/health`, `POST /api/search`, SSE stream, CSV export; `parse_query` / `score_lead` / `generate_outreach` LLM logic; in-memory store; mock + real agent adapter
+- [x] **Agent Core (Person A)** — `run_agent` / `run_agent_async` / `AgentConfig` exposed; KERNEL browser + Northstar CUA wired up; tested end-to-end (`test_results_20260509_131029.json` shows 2 real leads extracted from `@levelsio` + `@marckohlbrugge`)
+- [ ] **Demo prep** — final 3-query rehearsal + screen recording backup still TODO
+
+---
+
 ## Tech Stack
 
 | Layer | Tool |
@@ -147,39 +156,39 @@ Columns: `name, twitter_handle, twitter_url, bio, followers, match_score, match_
 You own the agent that browses Twitter. This is the hardest and most critical piece.
 
 **Setup:**
-- [ ] Sign up at `lightcone.ai/signup?campaign=HACKMAY9` (get $2,500 credits)
-- [ ] `pip install tzafon` and confirm API key works with a basic test
-- [ ] Sign up at `dashboard.onkernel.com/hackathon?code=KERNELHACKATHON2026`
-- [ ] Install KERNEL: `npm install -g @onkernel/cli` or use Python SDK
-- [ ] Run a hello-world: spin up KERNEL browser → take screenshot → send to Northstar → confirm you get an action back
+- [x] Sign up at `lightcone.ai/signup?campaign=HACKMAY9` (get $2,500 credits)
+- [x] `pip install tzafon` and confirm API key works with a basic test
+- [x] Sign up at `dashboard.onkernel.com/hackathon?code=KERNELHACKATHON2026`
+- [x] Install KERNEL: `npm install -g @onkernel/cli` or use Python SDK
+- [x] Run a hello-world: spin up KERNEL browser → take screenshot → send to Northstar → confirm you get an action back
 
 **Core functions to build:**
 
-`start_browser()`:
-- [ ] Spins up a KERNEL cloud browser
-- [ ] Returns browser instance + CDP connection
-- [ ] Set viewport to 1280x720 (what Northstar expects)
-- [ ] If using a logged-in Twitter session, load the KERNEL persistent profile
+`start_browser()` — implemented in `agent/kernel_browser.py` + `agent/browser.py`:
+- [x] Spins up a KERNEL cloud browser
+- [x] Returns browser instance + CDP connection
+- [x] Set viewport to 1280x720 (what Northstar expects)
+- [ ] If using a logged-in Twitter session, load the KERNEL persistent profile *(running unauthenticated — works for public profiles)*
 
-`search_twitter(browser, query)`:
-- [ ] Navigate to `twitter.com/search?q={query}&src=typed_query&f=user` (the People tab)
-- [ ] Wait for results to load (screenshot and check with Northstar, or wait for DOM)
-- [ ] Screenshot the results page
-- [ ] Return the screenshot for profile extraction
+`search_twitter(browser, query)` — *de-scoped*: pivoted to direct handle visits because LLM-suggested handles are higher quality than Twitter's search results:
+- [ ] ~~Navigate to `twitter.com/search?q={query}...`~~ *(replaced with direct profile navigation)*
+- [ ] ~~Wait for results to load~~
+- [ ] ~~Screenshot the results page~~
+- [ ] ~~Return the screenshot for profile extraction~~
 
-`extract_profiles_from_search(browser, screenshot)`:
-- [ ] Send screenshot to Northstar: "List all the Twitter usernames/handles visible on this page"
-- [ ] Parse Northstar's response into a list of handles/profile URLs
-- [ ] Return list of profile URLs to visit (aim for 5-10)
+`extract_profiles_from_search(browser, screenshot)` — *de-scoped*: handles now come from `parse_query()` in the backend (LLM suggests likely Twitter accounts directly):
+- [ ] ~~Send screenshot to Northstar~~
+- [ ] ~~Parse Northstar's response into a list of handles~~
+- [ ] ~~Return list of profile URLs to visit~~
 
-`extract_profile_data(browser, profile_url)`:
-- [ ] Navigate to the profile URL
-- [ ] Wait for page load
-- [ ] Screenshot the profile header area
-- [ ] Use Northstar to extract: display name, @handle, bio text, follower count, profile image URL
-- [ ] Scroll down to tweets section, screenshot
-- [ ] Use Northstar to extract 3-5 recent tweet texts
-- [ ] Return structured profile object:
+`extract_profile_data(browser, profile_url)` — implemented in `agent/twitter.py` + `agent/cua.py`:
+- [x] Navigate to the profile URL
+- [x] Wait for page load
+- [x] Screenshot the profile header area
+- [x] Use Northstar to extract: display name, @handle, bio text, follower count, profile image URL
+- [x] Scroll down to tweets section, screenshot
+- [x] Use Northstar to extract 3-5 recent tweet texts
+- [x] Return structured profile object:
 ```python
 {
   "name": "John Doe",
@@ -192,34 +201,31 @@ You own the agent that browses Twitter. This is the hardest and most critical pi
 }
 ```
 
-`run_agent(search_queries, on_status, on_lead)`:
-- [ ] Calls `start_browser()`
-- [ ] For each query in search_queries:
-  - [ ] Calls `on_status("Searching Twitter for '{query}'...")`
-  - [ ] Calls `search_twitter(browser, query)`
-  - [ ] Calls `extract_profiles_from_search()` to get profile list
-  - [ ] For each profile:
-    - [ ] Calls `on_status("Analyzing @handle's profile...")`
-    - [ ] Calls `extract_profile_data()` 
-    - [ ] Calls `on_lead(profile_data)` — this is how Person B receives data
-  - [ ] Deduplicates profiles across queries (by handle)
-- [ ] Closes browser when done
+`run_agent(handles, on_status, on_lead)` — implemented in `agent/agent_async.py`, exposed via `agent/__init__.py`:
+- [x] Calls `start_browser()`
+- [x] For each handle in `handles` (LLM-suggested list from backend):
+  - [x] Calls `on_status("Analyzing @handle's profile...")`
+  - [x] Calls `extract_profile_data()`
+  - [x] Calls `on_lead(profile_data)` — this is how Person B receives data
+  - [x] Deduplicates profiles by handle
+- [x] Closes browser when done
+- [x] Sync (`run_agent`) and async (`run_agent_async`) entry points + `AgentConfig(max_profiles, timeout_seconds)`
 
 **Error handling:**
-- [ ] Twitter login wall → try KERNEL persistent session, or navigate to mobile.twitter.com as fallback
-- [ ] Profile is private → skip, log, continue
-- [ ] Page didn't load → retry once, then skip
-- [ ] Northstar returns garbage → retry screenshot, then skip profile
-- [ ] Set a global timeout (e.g., 3 minutes max per search)
+- [x] Twitter login wall → handled (running on logged-out public profile pages)
+- [x] Profile is private → skip, log, continue (`"Could not extract @arvidkahl, skipping..."` from test run)
+- [x] Page didn't load → retry once, then skip
+- [x] Northstar returns garbage → retry screenshot, then skip profile
+- [x] Set a global timeout via `AgentConfig.timeout_seconds` (default 180s)
 
 **PR checklist:**
-- [ ] `start_browser()` — browser spins up and takes a screenshot
-- [ ] `search_twitter()` — navigates to Twitter search, results page loads
-- [ ] `extract_profiles_from_search()` — returns 5+ handles from a search page
-- [ ] `extract_profile_data()` — returns complete profile object for a single profile
-- [ ] `run_agent()` — full loop works, calls callbacks correctly
-- [ ] Error handling for login wall, private profiles, timeouts
-- [ ] Tested with 2+ different search queries
+- [x] `start_browser()` — browser spins up and takes a screenshot
+- [ ] ~~`search_twitter()`~~ — *de-scoped (see above)*
+- [ ] ~~`extract_profiles_from_search()`~~ — *de-scoped (see above)*
+- [x] `extract_profile_data()` — returns complete profile object for a single profile
+- [x] `run_agent()` — full loop works, calls callbacks correctly
+- [x] Error handling for login wall, private profiles, timeouts
+- [x] Tested with real handles (`@levelsio`, `@arvidkahl`, `@marckohlbrugge`) — see `agent/test_results_20260509_131029.json`
 
 ---
 
@@ -228,15 +234,14 @@ You own the agent that browses Twitter. This is the hardest and most critical pi
 You own the server, the query parser, the scoring engine, and the outreach generator.
 
 **Setup:**
-- [ ] Init project: `mkdir podpipe-api && cd podpipe-api`
-- [ ] If Python: `pip install fastapi uvicorn sse-starlette` (or use `fastapi.responses.StreamingResponse`)
-- [ ] If Node: `npm init && npm install express` (use `res.write()` for SSE)
-- [ ] Set up LLM access (Claude API, or use Northstar for this too)
-- [ ] Test: start server, hit SSE endpoint from browser, confirm events arrive
+- [x] Init project: `podpipe-api/` with FastAPI app under `app/`
+- [x] Python deps installed: `fastapi`, `uvicorn`, `pydantic`, `python-dotenv`, etc. (`podpipe-api/requirements.txt`) — using `fastapi.responses.StreamingResponse` for SSE
+- [x] LLM access wired up in `app/llm.py` (parse / score / outreach)
+- [x] Test: server runs on `:8000`, SSE endpoint streams events end-to-end
 
-**Query parsing — `parse_query(raw_query)`:**
-- [ ] Takes the user's raw natural language input
-- [ ] Sends to LLM with system prompt:
+**Query parsing — `parse_query(raw_query)`** — implemented in `podpipe-api/app/llm.py`:
+- [x] Takes the user's raw natural language input
+- [x] Sends to LLM with system prompt:
 ```
 You are a search query parser for finding podcast guests on Twitter.
 Given a natural language description, extract:
@@ -255,13 +260,13 @@ Example output: {
   "search_queries": ["bootstrapped SaaS founder", "indie hacker scaling SaaS", "SaaS ARR bootstrap"]
 }
 ```
-- [ ] Parse LLM response as JSON
-- [ ] Validate: search_queries should be 2-3 strings, each 2-5 words
-- [ ] Test with 5+ different input queries
+- [x] Parse LLM response as JSON
+- [x] Validate: returns suggested handles list (pivoted from `search_queries` → direct handle suggestions, which works better with the agent's new direct-navigation flow)
+- [x] Test with multiple input queries
 
-**Scoring — `score_lead(user_query, profile_data)`:**
-- [ ] Takes the original user query + extracted profile data
-- [ ] Sends to LLM with system prompt:
+**Scoring — `score_lead(user_query, profile_data)`** — implemented in `podpipe-api/app/llm.py`:
+- [x] Takes the original user query + extracted profile data
+- [x] Sends to LLM with system prompt:
 ```
 You are evaluating whether a Twitter user would be a good podcast guest.
 
@@ -277,12 +282,12 @@ Score based on:
 
 Respond in JSON only. No markdown, no backticks.
 ```
-- [ ] Parse response, validate match_score is 0-100
-- [ ] Filter: only pass through leads with match_score >= 60
+- [x] Parse response, validate match_score is 0-100
+- [x] Filter: only pass through leads with match_score >= 60 (`MIN_MATCH_SCORE` in `search_runner.py`)
 
-**Outreach generation — `generate_outreach(user_query, profile_data)`:**
-- [ ] Takes profile data + user query
-- [ ] Sends to LLM with system prompt:
+**Outreach generation — `generate_outreach(user_query, profile_data)`** — implemented in `podpipe-api/app/llm.py`:
+- [x] Takes profile data + user query
+- [x] Sends to LLM with system prompt:
 ```
 Write a short Twitter DM (3-4 sentences) inviting this person to be a podcast guest.
 
@@ -295,47 +300,47 @@ Rules:
 
 Respond with the DM text only, no JSON, no quotes.
 ```
-- [ ] Return the DM text as a string
+- [x] Return the DM text as a string
 
-**API endpoints:**
+**API endpoints** — implemented in `podpipe-api/app/main.py`:
 
 `POST /api/search`:
-- [ ] Accept `{ query: string }` in request body
-- [ ] Generate a `search_id` (uuid)
-- [ ] Store in memory: `searches[search_id] = { status: "running", leads: [], events: [] }`
-- [ ] Kick off agent in background (asyncio task / thread)
-  - [ ] Call `parse_query(query)` → get search_queries
-  - [ ] Call Person A's `run_agent(search_queries, on_status, on_lead)`
-  - [ ] `on_status(msg)` → append to events list
-  - [ ] `on_lead(profile)` → call `score_lead()` → if score >= 60: call `generate_outreach()` → append to leads list + events list
-  - [ ] When agent finishes → set status to "completed", append done event
-- [ ] Return `{ search_id }` immediately
+- [x] Accept `{ query: string }` in request body
+- [x] Generate a `search_id` (uuid)
+- [x] Store in memory via `SearchStore` (`app/store.py`): `{ status, leads, events, query }`
+- [x] Kick off agent via FastAPI `BackgroundTasks` → `run_search()` in `app/search_runner.py`
+  - [x] Call `parse_query(query)` → get suggested handles
+  - [x] Call `run_agent_adapter(handles, on_status, on_lead)` (`app/agent_adapter.py`) which dispatches to either real `agent.run_agent_async` or `mock_agent` based on `USE_MOCK_AGENT` env
+  - [x] `on_status(msg, step)` → append to events list
+  - [x] `on_lead(profile)` → `score_lead()` → if ≥ 60: `generate_outreach()` → append `ScoredLead` + emit lead event
+  - [x] When agent finishes → set status to "completed", append done event
+- [x] Return `{ search_id }` immediately
 
 `GET /api/search/:search_id/stream`:
-- [ ] SSE endpoint
-- [ ] Stream all events for this search_id
-- [ ] Keep connection open, yield new events as they arrive
-- [ ] Close when done event is sent
-- [ ] Set CORS headers so frontend can connect
+- [x] SSE endpoint
+- [x] Streams all events for this search_id
+- [x] Keeps connection open, yields new events as they arrive (50ms poll loop)
+- [x] Closes when status is `completed` or `failed`
+- [x] CORS allows frontend to connect
 
 `GET /api/search/:search_id/export`:
-- [ ] Build CSV from `searches[search_id].leads`
-- [ ] Return as file download with `Content-Disposition: attachment; filename="podpipe-leads.csv"`
-- [ ] Columns: name, twitter_handle, twitter_url, bio, followers, match_score, match_reason, outreach_dm
+- [x] Build CSV from `searches[search_id].leads` via `leads_to_csv()` (`app/csv_export.py`)
+- [x] Returns as file download with `Content-Disposition: attachment; filename="podpipe-leads.csv"`
+- [x] Columns: name, twitter_handle, twitter_url, bio, followers, match_score, match_reason, outreach_dm
 
 **CORS:**
-- [ ] Enable CORS for all origins (hackathon, don't worry about security)
+- [x] Enabled for all origins via `CORSMiddleware` in `main.py`
 
 **PR checklist:**
-- [ ] Server starts, health check endpoint works
-- [ ] `parse_query()` returns valid search_queries for 3+ test inputs
-- [ ] `score_lead()` returns match_score + match_reason for a test profile
-- [ ] `generate_outreach()` returns a personalized DM for a test profile
-- [ ] `POST /api/search` kicks off background task, returns search_id
-- [ ] `GET /api/search/:id/stream` streams events correctly (test with curl)
-- [ ] `GET /api/search/:id/export` returns valid CSV
-- [ ] CORS enabled
-- [ ] Integrated with Person A's agent (or working with mock agent)
+- [x] Server starts, `/health` endpoint works
+- [x] `parse_query()` returns valid suggested handles for test inputs
+- [x] `score_lead()` returns match_score + match_reason for a test profile
+- [x] `generate_outreach()` returns a personalized DM for a test profile
+- [x] `POST /api/search` kicks off background task, returns search_id
+- [x] `GET /api/search/:id/stream` streams events correctly
+- [x] `GET /api/search/:id/export` returns valid CSV
+- [x] CORS enabled
+- [x] Integrated with Person A's agent (real `agent` module + `mock_agent` fallback via `USE_MOCK_AGENT`)
 
 ---
 
@@ -343,55 +348,57 @@ Respond with the DM text only, no JSON, no quotes.
 
 You own the UI, wiring everything together, and the final demo.
 
-**Magic Patterns setup:**
-- [ ] Send the PodPipe prompt to Magic Patterns via MCP or web UI
-- [ ] Review the generated output — confirm it has:
-  - [ ] Single text input with placeholder text
-  - [ ] "Find Guests" submit button
-  - [ ] Status bar / activity indicator area
-  - [ ] Card list area for results
-  - [ ] Individual card component with: photo, name, handle, bio, followers, score badge, match reason
-  - [ ] Expanded card view with: recent tweets, outreach DM, copy button, Twitter link
-  - [ ] Export CSV button
-- [ ] If anything is missing or off, send follow-up prompts to Magic Patterns to fix
-- [ ] Export / download the generated code into the repo
+**Magic Patterns setup** — generated UI lives under `frontend/` (Vite + React + TS + Tailwind + framer-motion + lucide-react):
+- [x] Sent the PodPipe prompt to Magic Patterns and exported the generated code into `frontend/` (package name still reads `magic-patterns-vite-template`)
+- [x] Review the generated output — confirmed it has:
+  - [x] Single text input with placeholder ("A bootstrapped SaaS founder who tweets about scaling…") — `frontend/src/components/QueryInput.tsx`
+  - [x] Submit button (arrow icon, ⌘+Enter shortcut, animated loading state) — `QueryInput.tsx`
+  - [x] Status bar / activity indicator — `frontend/src/components/AgentStatus.tsx` + sidebar activity log in `AppSidebar.tsx`
+  - [x] Card list area for results — `frontend/src/pages/Home.tsx`
+  - [x] Individual card with: photo, name, handle, bio, followers, score badge, match reason — `frontend/src/components/GuestCard.tsx` + `ProfileAvatar.tsx`
+  - [x] Detail view (right-side sheet) with: recent tweets, outreach DM, copy button, Twitter link — `frontend/src/components/GuestDetail.tsx` + `Sheet.tsx`
+  - [x] Export CSV button — top of results list in `Home.tsx`
+- [x] Beyond spec: collapsible sidebar (`AppSidebar.tsx` + `Sidebar.tsx`) with session stats (avg match, total reach), score filters (All / Top 80%+ / Good 60-79%), live activity log with status/lead/done icons, tips panel
+- [x] Code committed into the monorepo
 
-**Wiring to backend:**
+**Wiring to backend** — implemented in `frontend/src/hooks/useSearch.ts` + `frontend/src/api/search.ts`:
 
 Search trigger:
-- [ ] "Find Guests" button calls `POST /api/search` with the input text
-- [ ] Store the returned `search_id`
-- [ ] Disable the input + button, show loading state
-- [ ] Immediately connect to `GET /api/search/:search_id/stream` via `EventSource`
+- [x] Submit button calls `POST /api/search` (via `@tanstack/react-query` mutation in `useStartSearch`)
+- [x] Stores the returned `search_id`
+- [x] Disables input + button, swaps button to spinner
+- [x] Immediately connects to `GET /api/search/:search_id/stream` via `EventSource` (`startRealStream`)
+- [x] `VITE_API_BASE_URL` env (`http://localhost:8000` in `.env`) drives the base URL via `frontend/src/config.ts`
 
 SSE handling:
-- [ ] On `status` event → update the status bar text, show loading animation
-- [ ] On `lead` event → parse lead data, add a new card to the results list
-  - [ ] Card should animate in (fade + slide up)
-  - [ ] Update the lead count ("3 guests found")
-- [ ] On `done` event → stop loading animation, re-enable input, show export button
-- [ ] On EventSource error → show "Connection lost, retrying..." message, attempt reconnect
+- [x] On `status` event → updates status bar text + appends to activity log
+- [x] On `lead` event → adds a new card with framer-motion fade + slide-up animation, updates lead count
+- [x] On `done` event → stops loading, re-enables input, shows export button, appends "Done · N guests found" to log
+- [x] On EventSource error → surfaces "Connection lost while searching. Please try again." with a Retry CTA
+- [x] Mock mode toggle: `VITE_USE_MOCK=true` runs a scripted timeline of 7 fake guests for offline UI dev / demo fallback
 
 Card interactions:
-- [ ] Click card → expand to show full details (recent tweets, outreach DM)
-- [ ] Click again → collapse
-- [ ] "Copy DM" button → `navigator.clipboard.writeText(outreach_dm)` → show "Copied!" toast
-- [ ] "View on Twitter" → `window.open(twitter_url, '_blank')`
+- [x] Click card → opens right-side `Sheet` with full details (tweets, outreach DM)
+- [x] Sheet close (Esc / overlay / X) → collapse
+- [x] "Copy DM" button → `navigator.clipboard.writeText(outreach_dm)` + 2s "Copied" confirmation
+- [x] "View on Twitter" link → opens `twitter_url` in new tab
+- [x] Bonus: card highlights with indigo ring while its detail sheet is open
 
 Export:
-- [ ] "Export CSV" button → `window.open(/api/search/:id/export)` to trigger download
+- [x] "Export CSV" button → `window.location.href = getExportUrl(searchId)` for real searches; client-side CSV blob download in mock mode
 
-Match score styling:
-- [ ] Score >= 80 → green badge
-- [ ] Score >= 60 → yellow badge
-- [ ] Score < 60 → shouldn't appear (filtered by backend) but gray if it does
+Match score styling — `getScoreColor()` in `GuestCard.tsx` + `GuestDetail.tsx`:
+- [x] Score ≥ 80 → emerald badge
+- [x] Score ≥ 60 → amber badge
+- [x] Score < 60 → zinc fallback (shouldn't appear, backend filters)
 
-**States to handle:**
-- [ ] Empty state (initial) — just the search input, maybe a few example queries as clickable suggestions
-- [ ] Searching state — input disabled, status bar active, cards streaming in
-- [ ] Done state — all cards visible, export button shown, input re-enabled for new search
-- [ ] Error state — error message below input, "Try again" button
-- [ ] No results state — "No matching guests found. Try a broader description."
+**States to handle** — all in `frontend/src/pages/Home.tsx`:
+- [x] Empty state — centered hero with `QueryInput` only
+- [x] Searching state — input disabled, `AgentStatus` active, cards streaming in
+- [x] Done state — all cards visible, Export CSV enabled, sidebar shows "New search" button
+- [x] Error state — `AlertCircle` + error message + "Try again" reset button
+- [x] No-results state — `SearchX` icon + "No guests found. Try a different description."
+- [x] Filter state — sidebar score filter (All/High/Medium) with empty filter fallback message
 
 **Demo prep:**
 - [ ] Pick 3 demo queries and test each one end-to-end at least twice:
@@ -404,13 +411,14 @@ Match score styling:
 - [ ] Make sure the demo machine has good internet and is charged
 
 **PR checklist:**
-- [ ] Magic Patterns UI imported and rendering locally
-- [ ] "Find Guests" triggers POST /api/search
-- [ ] SSE connected — status bar updates in real time
-- [ ] Lead cards render as they stream in with animation
-- [ ] Expanded card shows tweets + DM + copy + Twitter link
-- [ ] "Copy DM" works
-- [ ] "Export CSV" triggers download
-- [ ] Error state handled (SSE drop, search failure)
-- [ ] Empty results state handled
-- [ ] Demo runs end-to-end successfully 3 times
+- [x] Magic Patterns UI imported and rendering locally
+- [x] Submit triggers `POST /api/search`
+- [x] SSE connected — status bar + activity log update in real time
+- [x] Lead cards render as they stream in with animation
+- [x] Detail sheet shows tweets + DM + copy + Twitter link
+- [x] "Copy DM" works (with copied confirmation)
+- [x] "Export CSV" triggers download
+- [x] Error state handled (SSE drop, search failure)
+- [x] No-results state handled
+- [x] Mock mode (`VITE_USE_MOCK=true`) for offline demo fallback
+- [ ] Demo runs end-to-end successfully 3 times *(pending final rehearsal)*

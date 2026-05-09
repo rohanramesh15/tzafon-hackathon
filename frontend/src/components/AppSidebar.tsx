@@ -20,7 +20,7 @@ import {
   SidebarSeparator } from
 './Sidebar';
 import { Guest } from '../types';
-import { ActivityLogItem } from '../hooks/useGuestSearch';
+import { ActivityLogItem } from '../types';
 export type ScoreFilter = 'all' | 'high' | 'medium';
 interface AppSidebarProps {
   onNewSearch: () => void;
