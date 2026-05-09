@@ -25,7 +25,7 @@ load_dotenv()
 
 
 def test_basic_search():
-    """Test a basic Twitter search with one query."""
+    """Smoke-test KERNEL + CUA extraction for a small set of public handles."""
     from agent import run_agent, AgentConfig
 
     print("=" * 60)
@@ -56,19 +56,18 @@ def test_basic_search():
         print("-" * 40)
         print()
 
-    # Run with a single test query
+    # Public `run_agent` is the KERNEL async pipeline: pass handles (not search strings).
     config = AgentConfig(
-        max_profiles_per_query=3,  # Limit for testing
-        max_total_profiles=5,
-        timeout_seconds=120  # 2 minute timeout for test
+        max_profiles=5,
+        timeout_seconds=120,
     )
 
     try:
         run_agent(
-            search_queries=["bootstrapped SaaS founder"],
+            handles=["levelsio", "arvidkahl", "marckohlbrugge"],
             on_status=on_status,
             on_lead=on_lead,
-            config=config
+            config=config,
         )
     except Exception as e:
         print(f"ERROR: {e}")
