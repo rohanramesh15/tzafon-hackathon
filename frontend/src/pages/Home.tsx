@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Download, AlertCircle, RefreshCw, SearchX } from 'lucide-react';
 import { useGuestSearch } from '../hooks/useSearch';
 import { QueryInput } from '../components/QueryInput';
-import { FollowUpQuestions } from '../components/FollowUpQuestions';
 import { AgentStatus } from '../components/AgentStatus';
 import { GuestCard } from '../components/GuestCard';
 import { GuestDetail } from '../components/GuestDetail';
@@ -24,10 +23,7 @@ export function Home() {
     activityLog,
     leads,
     error,
-    followUpQuestions,
     startSearch,
-    submitClarifications,
-    skipClarification,
     reset,
     exportCsv,
   } = useGuestSearch();
@@ -36,8 +32,9 @@ export function Home() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [scoreFilter, setScoreFilter] = useState<ScoreFilter>('all');
 
-  const handleSearch = () => {
+  const handleSearch = (filters: Record<string, string | null>) => {
     if (!query.trim()) return;
+    console.log('filters', filters);
     startSearch(query);
   };
 
@@ -63,7 +60,6 @@ export function Home() {
   const showResults = leads.length > 0;
   const showEmpty = state === 'empty';
   const isSearching = state === 'searching';
-  const isClarifying = state === 'clarifying';
 
   return (
     <SidebarProvider>
@@ -107,20 +103,8 @@ export function Home() {
             </div>
           )}
 
-          {/* Clarifying state - show follow-up questions */}
-          {isClarifying && (
-            <div className="flex-1 flex items-center justify-center px-6 py-12">
-              <FollowUpQuestions
-                questions={followUpQuestions}
-                originalQuery={query}
-                onSubmit={submitClarifications}
-                onSkip={skipClarification}
-              />
-            </div>
-          )}
-
           {/* Searching/Results state */}
-          {!showEmpty && !isClarifying && (
+          {!showEmpty && (
             <div className="px-6 py-8 md:py-12">
               <motion.div
                 layout

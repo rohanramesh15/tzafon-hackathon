@@ -62,3 +62,14 @@ export function getStreamUrl(searchId: string): string {
 export function getExportUrl(searchId: string): string {
   return `${API_BASE_URL}/api/search/${searchId}/export`;
 }
+
+export async function detectFilters(query: string): Promise<Record<string, string | null>> {
+  const res = await fetch(`${API_BASE_URL}/api/detect-filters`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query }),
+  });
+  if (!res.ok) throw new Error('detect-filters failed');
+  const data = await res.json();
+  return data.filters;
+}

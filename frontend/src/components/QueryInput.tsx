@@ -1,24 +1,24 @@
-import React, { useEffect, useRef } from 'react';
-import { Loader2, ArrowRight } from 'lucide-react';
+import React, { useEffect, useState, useRef } from 'react';
+import { Loader2, ArrowRight, Circle, CheckCircle2 } from 'lucide-react';
 import { SearchState } from '../types';
+import { detectFilters } from '../api/search';
 
 interface QueryInputProps {
   query: string;
   setQuery: (q: string) => void;
-  onSearch: () => void;
+  onSearch: (filters: Record<string, string | null>) => void;
   state: SearchState;
 }
 
-export function QueryInput({
-  query,
-  setQuery,
-  onSearch,
-  state
-}: QueryInputProps) {
-  const isSearching = state === 'searching';
-  const isClarifying = state === 'clarifying';
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+const FILTERS = ['Location', 'Topic', 'Audience size', 'Industry', 'Recently active'];
 
+export function QueryInput({ query, setQuery, onSearch, state }: QueryInputProps) {
+  const isSearching = state === 'searching';
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [detectedValues, setDetectedValues] = useState<Record<string, string | null>>({});
+
+  // Auto-resize textarea
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
@@ -26,12 +26,43 @@ export function QueryInput({
     }
   }, [query]);
 
+  // Debounced call to the backend to detect filters via Claude
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+
+    if (!query.trim()) {
+      setDetectedValues({});
+      return;
+    }
+
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const filters = await detectFilters(query);
+        setDetectedValues(filters);
+      } catch {
+        // silently ignore — filters just won't auto-check
+      }
+    }, 600);
+
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [query]);
+
+  const activeFilters = FILTERS.filter((f) => detectedValues[f] != null);
+
+  const buildFilters = (): Record<string, string | null> =>
+    Object.fromEntries(FILTERS.map((f) => [f, detectedValues[f] ?? null]));
+
+  const handleSubmit = () => {
+    if (!query.trim() || isSearching) return;
+    onSearch(buildFilters());
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
-      if (query.trim() && !isSearching && !isClarifying) {
-        onSearch();
-      }
+      handleSubmit();
     }
   };
 
@@ -47,24 +78,41 @@ export function QueryInput({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
-          disabled={isSearching || isClarifying}
+          disabled={isSearching}
           placeholder="A bootstrapped SaaS founder who tweets about scaling..."
           className="w-full min-h-[88px] resize-none bg-transparent border-none p-5 text-base placeholder:text-muted-foreground/50 disabled:opacity-50 outline-none focus:ring-0"
           rows={3}
         />
 
-        <div className="flex items-center justify-end gap-4 px-5 pb-4">
+        <div className="flex items-center justify-between gap-4 px-5 pb-4">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+            {FILTERS.map((filter) => {
+              const isActive = activeFilters.includes(filter);
+              return (
+                <span
+                  key={filter}
+                  className={`flex items-center gap-2 text-sm select-none transition-colors ${
+                    isActive ? 'text-foreground' : 'text-muted-foreground'
+                  }`}
+                >
+                  {isActive ? (
+                    <CheckCircle2 size={16} className="text-indigo-600" strokeWidth={2} />
+                  ) : (
+                    <Circle size={16} strokeWidth={1.5} />
+                  )}
+                  {filter}
+                </span>
+              );
+            })}
+          </div>
+
           <button
-            onClick={onSearch}
-            disabled={!query.trim() || isSearching || isClarifying}
+            onClick={handleSubmit}
+            disabled={!query.trim() || isSearching}
             className="flex items-center justify-center bg-indigo-600 hover:bg-indigo-700 text-white w-10 h-10 rounded-full transition-all disabled:opacity-40 disabled:hover:bg-indigo-600 shrink-0"
             aria-label="Search"
           >
-            {isSearching ? (
-              <Loader2 size={16} className="animate-spin" />
-            ) : (
-              <ArrowRight size={16} />
-            )}
+            {isSearching ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}
           </button>
         </div>
       </div>

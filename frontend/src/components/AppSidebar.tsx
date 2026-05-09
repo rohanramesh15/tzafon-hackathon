@@ -65,7 +65,13 @@ export function AppSidebar({
     <Sidebar collapsible="offcanvas">
       <SidebarHeader className="px-3 pt-3 pb-2">
         <div className="flex items-center gap-2 px-1 mb-3">
-          <div className="w-6 h-6 rounded bg-indigo-600 shrink-0" />
+          <img
+            src="/podpipe.svg"
+            alt=""
+            width={28}
+            height={28}
+            className="h-7 w-7 shrink-0 rounded-md object-contain"
+          />
           <span className="font-semibold text-base text-foreground tracking-tight">
             PodPipe
           </span>

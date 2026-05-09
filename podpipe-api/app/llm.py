@@ -9,7 +9,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from app.models import ParsedQuery, ProfileData, ScoreResult, QueryAnalysisResult, FollowUpQuestion, QuestionOption
+from app.models import ParsedQuery, ProfileData, ScoreResult
 
 logging.basicConfig(level=logging.INFO, stream=sys.stdout, force=True)
 logger = logging.getLogger(__name__)
@@ -47,80 +47,6 @@ Output format:
 Respond in JSON only. No markdown, no backticks."""
 
 
-def _build_parse_prompt(seed_handles: list[str], podcast_description: str) -> str:
-    """Build the parse prompt with optional context from seeds and podcast description."""
-
-    # If we have seeds, use a more targeted prompt
-    if seed_handles:
-        handles_str = ", ".join(seed_handles)
-        prompt = f"""You are finding podcast guests on Twitter similar to specific examples.
-
-The podcaster likes these accounts: {handles_str}
-
-{f"Podcast context: {podcast_description.strip()}" if podcast_description.strip() else ""}
-
-Based on these examples, suggest 10-15 SIMILAR Twitter accounts.
-
-Think about:
-- What topics do these example accounts tweet about?
-- What's their follower range (similar size)?
-- What makes them good podcast material?
-- Who else is in their network/niche?
-
-CRITICAL RULES:
-1. Do NOT suggest the example accounts themselves ({handles_str})
-2. Suggest REAL, EXISTING Twitter accounts only
-3. Think of lesser-known accounts in the same space, not just the famous ones
-4. Diversify - don't just suggest the most obvious names
-
-Output JSON only:
-{{"keywords": ["topic1", "topic2"], "role": "founder|investor|creator", "vibe": "tactical|storyteller", "handles": ["@handle1", "@handle2", ...]}}
-
-No markdown, no backticks, no explanation."""
-        return prompt
-
-    # No seeds - use the base prompt
-    prompt = PARSE_SYSTEM_PROMPT_BASE
-    if podcast_description.strip():
-        prompt = f"Podcast context: {podcast_description.strip()}\n\n" + prompt
-
-    return prompt
-
-ANALYZE_QUERY_PROMPT = """You are analyzing a podcast guest search query to determine if it needs clarification.
-
-A query is SPECIFIC ENOUGH if it includes at least 2 of these:
-1. Industry/domain (e.g., "SaaS", "AI", "fintech", "e-commerce")
-2. Role (e.g., "founder", "investor", "developer", "marketer")
-3. Specific characteristic (e.g., "bootstrapped", "raised Series A", "solo", "$1M ARR")
-4. Content style (e.g., "tactical advice", "storytelling", "contrarian takes")
-
-If the query is vague (e.g., "someone interesting", "a founder", "tech person"), generate 2-3 follow-up questions to clarify.
-
-Each question should have 3-4 concrete options that help narrow down the search.
-
-Respond in JSON:
-{
-  "needs_clarification": true/false,
-  "questions": [
-    {
-      "id": "industry",
-      "question": "What industry should they be in?",
-      "options": [
-        {"id": "saas", "label": "SaaS / Software"},
-        {"id": "ai", "label": "AI / Machine Learning"},
-        {"id": "fintech", "label": "Fintech"},
-        {"id": "ecommerce", "label": "E-commerce / DTC"}
-      ]
-    }
-  ]
-}
-
-If the query is specific enough, return:
-{"needs_clarification": false, "questions": []}
-
-No markdown, no backticks."""
-
-
 SCORE_SYSTEM_PROMPT = """You are evaluating whether a Twitter user would be a good podcast guest.
 
 Given the podcaster's request and the candidate's profile, return:
@@ -134,6 +60,24 @@ Score based on:
 - Podcast readiness (do they seem like someone who'd do interviews?)
 
 Respond in JSON only. No markdown, no backticks."""
+
+DETECT_FILTERS_PROMPT = """You are a filter extractor for a podcast guest search tool.
+
+Given a natural language description of who the podcaster wants as a guest, extract values for these filters:
+- Location: geographic location (city, country, region) or "Remote" if remote work is mentioned. null if not mentioned.
+- Topic: main topic(s) the person talks or writes about. null if not clear.
+- Audience size: any indication of follower count or audience scale (e.g. "100k followers", "niche", "large following"). null if not mentioned.
+- Industry: domain or industry they work in (e.g. "SaaS", "AI", "Healthcare"). null if not clear.
+- Recently active: return "yes" if recency of posting/activity is mentioned, otherwise null.
+
+Return a single JSON object. All five keys must be present. Values are strings or null.
+
+Example input: "A Kenya-based AI founder posting frequently about SaaS growth"
+Example output:
+{"Location":"Kenya","Topic":"AI / SaaS growth","Audience size":null,"Industry":"SaaS","Recently active":"yes"}
+
+Respond with JSON only. No markdown, no backticks, no explanation."""
+
 
 OUTREACH_SYSTEM_PROMPT = """Write a short Twitter DM (3-4 sentences) inviting this person to be a podcast guest.
 
@@ -241,25 +185,73 @@ def _profile_text(profile_data: ProfileData) -> str:
     )
 
 
-async def parse_query(
-    raw_query: str,
-    seed_handles: list[str] | None = None,
-    podcast_description: str = ""
-) -> ParsedQuery:
-    seed_handles = seed_handles or []
+def _fallback_detect_filters(query: str) -> dict[str, str | None]:
+    q = query.lower()
 
-    if use_mock_llm():
-        logger.info("[LLM] Using mock mode (USE_MOCK_LLM=true)")
-        return _fallback_parse(raw_query)
+    location_terms = [
+        "remote", "kenya", "nairobi", "nigeria", "lagos", "ghana", "south africa",
+        "usa", "united states", "new york", "san francisco", "uk", "london",
+        "europe", "africa", "asia", "india", "canada", "australia", "berlin",
+        "paris", "tokyo", "singapore", "dubai", "amsterdam",
+    ]
+    location = next((t.title() for t in location_terms if re.search(rf"\b{re.escape(t)}\b", q)), None)
 
-    if not os.getenv("ANTHROPIC_API_KEY"):
-        logger.info("[LLM] No ANTHROPIC_API_KEY, using fallback")
+    topic_keywords = [
+        "ai", "machine learning", "crypto", "blockchain", "climate", "fintech",
+        "saas", "web3", "startups", "entrepreneurship", "investing", "fundraising",
+        "growth", "marketing", "product", "design",
+    ]
+    topic = next((t.upper() if len(t) <= 3 else t.title() for t in topic_keywords if re.search(rf"\b{re.escape(t)}\b", q)), None)
+    if not topic:
+        m = re.search(r"(?:about|discusses?|talks? about|covers?)\s+(\w+(?:\s+\w+)?)", q)
+        topic = m.group(1).title() if m else None
+
+    audience = next((m.group(0) for p in [
+        r"\b\d+k\b", r"\b\d+,\d{3}\+?\s*followers?\b", r"\bmicro[\s-]influencer\b",
+        r"\blarge audience\b", r"\bniche audience\b",
+    ] if (m := re.search(p, q))), None)
+
+    industry_terms = [
+        "saas", "fintech", "healthtech", "edtech", "biotech", "crypto", "web3",
+        "media", "finance", "healthcare", "education", "retail", "consulting", "gaming",
+    ]
+    industry = next((t.title() for t in industry_terms if re.search(rf"\b{re.escape(t)}\b", q)), None)
+    if not industry and re.search(r"\btech(?:nology)?\b", q):
+        industry = "Tech"
+
+    recently_active = "yes" if re.search(
+        r"\b(recently|active|posts?\s+(?:regularly|often|frequently)|last\s+(?:week|month|year)|this\s+(?:week|month|year))\b", q
+    ) else None
+
+    return {
+        "Location": location,
+        "Topic": topic,
+        "Audience size": audience,
+        "Industry": industry,
+        "Recently active": recently_active,
+    }
+
+
+async def detect_filters(query: str) -> dict[str, str | None]:
+    if use_mock_llm() or not os.getenv("ANTHROPIC_API_KEY"):
+        return _fallback_detect_filters(query)
+
+    try:
+        content = await _claude_message(DETECT_FILTERS_PROMPT, query)
+        raw = _json_from_text(content)
+        keys = ["Location", "Topic", "Audience size", "Industry", "Recently active"]
+        return {k: raw.get(k) or None for k in keys}
+    except Exception:
+        return _fallback_detect_filters(query)
+
+
+async def parse_query(raw_query: str) -> ParsedQuery:
+    if use_mock_llm() or not os.getenv("ANTHROPIC_API_KEY"):
         return _fallback_parse(raw_query)
 
     try:
-        system_prompt = _build_parse_prompt(seed_handles, podcast_description)
-        logger.info(f"[LLM] Calling Claude with seeds={seed_handles}, desc={podcast_description[:50] if podcast_description else 'none'}")
-        content = await _claude_message(system_prompt, raw_query)
+        logger.info(f"[LLM] Calling Claude for query: {raw_query[:50]}...")
+        content = await _claude_message(PARSE_SYSTEM_PROMPT_BASE, raw_query)
         logger.info(f"[LLM] Claude response: {content[:200]}...")
         result = ParsedQuery.model_validate(_json_from_text(content))
         logger.info(f"[LLM] Parsed handles: {result.handles}")
@@ -328,77 +320,3 @@ async def generate_outreach(user_query: str, profile_data: ProfileData) -> str:
         return content.strip().strip('"')
     except Exception:
         return _fallback_outreach(user_query, profile_data)
-
-
-def _fallback_analyze_query(raw_query: str) -> QueryAnalysisResult:
-    """Fallback analysis when LLM is unavailable - always requires clarification for short queries."""
-    words = raw_query.lower().split()
-    # Very simple heuristic: if query has fewer than 5 words, ask for clarification
-    if len(words) < 5:
-        return QueryAnalysisResult(
-            needs_clarification=True,
-            questions=[
-                FollowUpQuestion(
-                    id="industry",
-                    question="What industry should they be in?",
-                    type="single_choice",
-                    options=[
-                        QuestionOption(id="saas", label="SaaS / Software"),
-                        QuestionOption(id="ai", label="AI / Machine Learning"),
-                        QuestionOption(id="fintech", label="Fintech"),
-                        QuestionOption(id="ecommerce", label="E-commerce / DTC"),
-                    ]
-                ),
-                FollowUpQuestion(
-                    id="stage",
-                    question="What stage should they be at?",
-                    type="single_choice",
-                    options=[
-                        QuestionOption(id="bootstrapped", label="Bootstrapped / Indie"),
-                        QuestionOption(id="seed", label="Seed / Early Stage"),
-                        QuestionOption(id="growth", label="Series A+ / Growth"),
-                        QuestionOption(id="any", label="Any stage"),
-                    ]
-                ),
-            ]
-        )
-    return QueryAnalysisResult(needs_clarification=False, questions=[])
-
-
-async def analyze_query(raw_query: str) -> QueryAnalysisResult:
-    """Analyze if a query needs clarification and generate follow-up questions."""
-    logger.info(f"[LLM] Analyzing query: {raw_query}")
-
-    if use_mock_llm():
-        logger.info("[LLM] Using mock mode for query analysis")
-        return _fallback_analyze_query(raw_query)
-
-    if not os.getenv("ANTHROPIC_API_KEY"):
-        logger.info("[LLM] No ANTHROPIC_API_KEY, using fallback analysis")
-        return _fallback_analyze_query(raw_query)
-
-    try:
-        content = await _claude_message(ANALYZE_QUERY_PROMPT, raw_query)
-        logger.info(f"[LLM] Query analysis response: {content[:300]}...")
-        data = _json_from_text(content)
-
-        # Parse questions with proper models
-        questions = []
-        for q in data.get("questions", []):
-            options = [QuestionOption(id=opt["id"], label=opt["label"]) for opt in q.get("options", [])]
-            questions.append(FollowUpQuestion(
-                id=q["id"],
-                question=q["question"],
-                type=q.get("type", "single_choice"),
-                options=options
-            ))
-
-        result = QueryAnalysisResult(
-            needs_clarification=data.get("needs_clarification", False),
-            questions=questions
-        )
-        logger.info(f"[LLM] Query analysis result: needs_clarification={result.needs_clarification}, num_questions={len(result.questions)}")
-        return result
-    except Exception as e:
-        logger.error(f"[LLM] Error analyzing query: {e}, using fallback")
-        return _fallback_analyze_query(raw_query)
