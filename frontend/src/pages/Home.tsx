@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Download, AlertCircle, RefreshCw, SearchX } from 'lucide-react';
-import { useGuestSearch } from '../hooks/useGuestSearch';
+import { useGuestSearch } from '../hooks/useSearch';
 import { QueryInput } from '../components/QueryInput';
 import { AgentStatus } from '../components/AgentStatus';
 import { GuestCard } from '../components/GuestCard';

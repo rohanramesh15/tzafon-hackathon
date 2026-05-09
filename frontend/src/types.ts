@@ -5,7 +5,7 @@ export interface Guest {
   twitter_url: string;
   bio: string;
   followers: number;
-  profile_image_url: string;
+  profile_image_url?: string | null;
   match_score: number;
   match_reason: string;
   recent_tweets: string[];
@@ -30,3 +30,10 @@ export interface SearchEventDone {
 }
 
 export type SearchEvent = SearchEventStatus | SearchEventLead | SearchEventDone;
+
+export interface ActivityLogItem {
+  id: string;
+  message: string;
+  timestamp: number;
+  kind: 'status' | 'lead' | 'done';
+}
