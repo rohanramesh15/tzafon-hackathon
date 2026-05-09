@@ -1,10 +1,14 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { Guest, SearchState, ActivityLogItem } from '../types';
-import { startSearch, getStreamUrl, getExportUrl, SearchEvent, SearchEventDone, SearchEventError } from '../api/search';
+import { Guest, SearchState, ActivityLogItem, FollowUpQuestion } from '../types';
+import { startSearch as apiStartSearch, analyzeQuery, getStreamUrl, getExportUrl, SearchEvent, SearchEventDone, SearchEventError, SearchParams } from '../api/search';
 
 export function useStartSearch() {
-  return useMutation({ mutationFn: startSearch });
+  return useMutation({ mutationFn: (params: SearchParams) => apiStartSearch(params) });
+}
+
+export function useAnalyzeQuery() {
+  return useMutation({ mutationFn: (query: string) => analyzeQuery(query) });
 }
 
 const MOCK_STATUSES = [
@@ -69,78 +73,6 @@ const MOCK_GUESTS: Guest[] = [
     outreach_dm:
       'Hi Marie — your Notion Mastery framing of "studio of one" is exactly the conversation my listeners are hungry for. Would love to host you for a 45-minute episode on building deliberately small. Let me know.',
   },
-  {
-    id: '4',
-    name: 'Pieter Levels',
-    twitter_handle: '@levelsio',
-    twitter_url: 'https://twitter.com/levelsio',
-    bio: 'Solo bootstrapped maker. Nomad List, Remote OK, photoAI. $200k+/mo. I build in public and ship fast.',
-    followers: 462000,
-    profile_image_url: 'https://i.pravatar.cc/150?img=68',
-    match_score: 94,
-    match_reason: 'Iconic indie hacker with a reach few peers can match.',
-    recent_tweets: [
-      'Built a new SaaS in 4 days. Live at $3k MRR week one. Speed is the moat.',
-      'Stop reading. Start shipping. Your first version will be embarrassing. Ship it anyway.',
-      'I do my own ops, support, marketing, and engineering. AI handles the boring 80%.',
-    ],
-    outreach_dm:
-      "Hey Pieter — your build-in-public approach has set the template for an entire generation of solo founders. I'd be honored to host you on the show. Happy to record on whatever continent you're on this week.",
-  },
-  {
-    id: '5',
-    name: 'Tyler Tringas',
-    twitter_handle: '@tylertringas',
-    twitter_url: 'https://twitter.com/tylertringas',
-    bio: 'GP at Calm Company Fund. Previously founded Storemapper. I invest in and write about calm, profitable software businesses.',
-    followers: 31700,
-    profile_image_url: 'https://i.pravatar.cc/150?img=14',
-    match_score: 84,
-    match_reason: 'Operator-turned-investor lens on durable SaaS economics.',
-    recent_tweets: [
-      "Calm companies aren't low ambition. They're high precision about what to ignore.",
-      'The best founders I back have a clear answer to: what are you NOT going to build?',
-      'Profitability buys you optionality. Optionality buys you sanity.',
-    ],
-    outreach_dm:
-      "Hi Tyler — Calm Company Fund's thesis is one of the most refreshing in the SaaS world. I'd love to have you on to talk about the operator-investor mindset shift and what makes a company genuinely calm. 30 mins?",
-  },
-  {
-    id: '6',
-    name: 'Justin Jackson',
-    twitter_handle: '@mijustin',
-    twitter_url: 'https://twitter.com/mijustin',
-    bio: 'Co-founder of Transistor.fm. Podcaster, writer, slow-build SaaS believer. Sometimes I post charts.',
-    followers: 78500,
-    profile_image_url: 'https://i.pravatar.cc/150?img=52',
-    match_score: 90,
-    match_reason: 'Built Transistor; deeply understands podcasting and bootstrapping.',
-    recent_tweets: [
-      'Most SaaS advice is written by people who raised. Different game, different rules.',
-      'Your podcast is a relationship engine, not a marketing channel. Treat it accordingly.',
-      'We hit $200k MRR by being patient and slightly stubborn.',
-    ],
-    outreach_dm:
-      "Hey Justin — fellow podcaster here. Transistor's slow-and-stubborn growth story is one I'd love to unpack with my audience. Bonus: we can geek out on podcast-as-a-business at the end. Open to a recording?",
-  },
-  {
-    id: '7',
-    name: 'Sahil Lavingia',
-    twitter_handle: '@shl',
-    twitter_url: 'https://twitter.com/shl',
-    bio: 'Founder of Gumroad. Author of The Minimalist Entrepreneur. Building the simplest path from idea to income.',
-    followers: 198000,
-    profile_image_url: 'https://i.pravatar.cc/150?img=59',
-    match_score: 76,
-    match_reason: 'Strong founder voice; more philosophical than tactical.',
-    recent_tweets: [
-      "Most companies fail because they try to grow before they're needed.",
-      'Profitability is the ultimate validation. Everything else is theater.',
-      'Building small is not a consolation prize.',
-    ],
-    outreach_dm:
-      'Hi Sahil — your minimalist entrepreneur framing has changed how a lot of my listeners think about building. Would love to have you on for a focused 30-minute conversation on rejecting growth-at-all-costs.',
-  },
 ];
 
 const USE_MOCK = import.meta.env.VITE_USE_MOCK === 'true';
@@ -154,10 +86,15 @@ export function useGuestSearch() {
   const [leads, setLeads] = useState<Guest[]>([]);
   const [error, setError] = useState<string | null>(null);
 
+  // Clarification state
+  const [followUpQuestions, setFollowUpQuestions] = useState<FollowUpQuestion[]>([]);
+  const [clarificationAnswers, setClarificationAnswers] = useState<Record<string, string>>({});
+
   const eventSourceRef = useRef<EventSource | null>(null);
   const timeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const startSearchMutation = useStartSearch();
+  const analyzeQueryMutation = useAnalyzeQuery();
 
   const cleanup = useCallback(() => {
     if (eventSourceRef.current) {
@@ -252,17 +189,27 @@ export function useGuestSearch() {
     [handleEvent, cleanup]
   );
 
-  const startSearch = useCallback(
-    async (searchQuery: string) => {
-      if (!searchQuery.trim()) return;
+  // Enrich the query with clarification answers
+  const buildEnrichedQuery = useCallback((baseQuery: string, answers: Record<string, string>): string => {
+    if (Object.keys(answers).length === 0) return baseQuery;
 
-      cleanup();
+    const answerText = Object.entries(answers)
+      .map(([_, value]) => value)
+      .join(', ');
+
+    return `${baseQuery}. Additional context: ${answerText}`;
+  }, []);
+
+  // Execute the actual search (called after clarification or if no clarification needed)
+  const executeSearch = useCallback(
+    async (searchQuery: string, answers: Record<string, string> = {}) => {
       setState('searching');
-      setQuery(searchQuery);
       setLeads([]);
       setActivityLog([]);
       setError(null);
       setStatusMessage('');
+
+      const enrichedQuery = buildEnrichedQuery(searchQuery, answers);
 
       try {
         let newSearchId: string;
@@ -270,7 +217,10 @@ export function useGuestSearch() {
         if (USE_MOCK) {
           newSearchId = `mock_${Date.now()}`;
         } else {
-          const data = await startSearchMutation.mutateAsync(searchQuery);
+          const data = await startSearchMutation.mutateAsync({
+            query: enrichedQuery,
+            clarification_answers: answers,
+          });
           newSearchId = data.search_id;
         }
 
@@ -288,8 +238,66 @@ export function useGuestSearch() {
         cleanup();
       }
     },
-    [cleanup, startMockStream, startRealStream, startSearchMutation]
+    [buildEnrichedQuery, startMockStream, startRealStream, startSearchMutation, cleanup]
   );
+
+  // Initial search - analyzes query first
+  const startSearch = useCallback(
+    async (searchQuery: string) => {
+      if (!searchQuery.trim()) return;
+
+      cleanup();
+      setQuery(searchQuery);
+      setFollowUpQuestions([]);
+      setClarificationAnswers({});
+      setLeads([]);
+      setActivityLog([]);
+      setError(null);
+      setStatusMessage('Analyzing your query...');
+      setState('searching');
+
+      try {
+        if (USE_MOCK) {
+          // In mock mode, skip clarification
+          await executeSearch(searchQuery);
+          return;
+        }
+
+        // Analyze the query first
+        const analysis = await analyzeQueryMutation.mutateAsync(searchQuery);
+
+        if (analysis.needs_clarification && analysis.questions.length > 0) {
+          // Show follow-up questions
+          setFollowUpQuestions(analysis.questions);
+          setState('clarifying');
+          setStatusMessage('');
+        } else {
+          // Query is specific enough, proceed with search
+          await executeSearch(searchQuery);
+        }
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : 'An unexpected error occurred';
+        setError(message);
+        setState('error');
+        cleanup();
+      }
+    },
+    [cleanup, executeSearch, analyzeQueryMutation]
+  );
+
+  // Submit clarification answers and continue search
+  const submitClarifications = useCallback(
+    async (answers: Record<string, string>) => {
+      setClarificationAnswers(answers);
+      await executeSearch(query, answers);
+    },
+    [query, executeSearch]
+  );
+
+  // Skip clarification and search anyway
+  const skipClarification = useCallback(async () => {
+    await executeSearch(query);
+  }, [query, executeSearch]);
 
   const reset = useCallback(() => {
     cleanup();
@@ -300,6 +308,8 @@ export function useGuestSearch() {
     setActivityLog([]);
     setLeads([]);
     setError(null);
+    setFollowUpQuestions([]);
+    setClarificationAnswers({});
   }, [cleanup]);
 
   const exportCsv = useCallback(() => {
@@ -341,7 +351,11 @@ export function useGuestSearch() {
     activityLog,
     leads,
     error,
+    followUpQuestions,
+    clarificationAnswers,
     startSearch,
+    submitClarifications,
+    skipClarification,
     reset,
     exportCsv,
   };

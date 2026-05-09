@@ -1,30 +1,40 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
+import sys
 from typing import Any
 
 from dotenv import load_dotenv
 
-from app.models import ParsedQuery, ProfileData, ScoreResult
+from app.models import ParsedQuery, ProfileData, ScoreResult, QueryAnalysisResult, FollowUpQuestion, QuestionOption
+
+logging.basicConfig(level=logging.INFO, stream=sys.stdout, force=True)
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", "agent", ".env"))
 
 
-PARSE_SYSTEM_PROMPT = """You are a search query parser for finding podcast guests on Twitter.
+PARSE_SYSTEM_PROMPT_BASE = """You are a search query parser for finding podcast guests on Twitter.
 Given a natural language description of who the podcaster wants as a guest, you must:
 1. Extract structured information about the request
 2. Suggest 10-15 REAL Twitter handles of people who match this description
 
-CRITICAL: You must suggest REAL, EXISTING Twitter accounts. Think of actual well-known people in the tech/startup space. Do NOT make up handles.
+CRITICAL RULES:
+1. Suggest REAL, EXISTING Twitter accounts only - do NOT make up handles
+2. DO NOT suggest these overused accounts: @levelsio, @marckohlbrugge, @csallen, @shl, @arvidkahl, @paulg, @sama, @naval
+3. Think of LESSER-KNOWN but still credible accounts in the relevant niche
+4. Diversify across different sub-niches and follower counts
+5. Consider people who actively engage on Twitter and would likely respond to podcast invites
 
-Examples of real handles by category:
-- Bootstrapped SaaS founders: @levelsio, @marckohlbrugge, @csallen, @shl, @ajlkn
-- Indie hackers: @dannypostmaa, @arvidkahl, @jonbstrong
-- VCs/Investors: @paulg, @sama, @naval, @jason
-- AI/ML: @ylecun, @hardmaru, @AndrewYNg
+Think creatively about who matches the description. Consider:
+- People who tweet about the specific topic mentioned
+- Rising voices in the space, not just the famous ones
+- People with 5K-100K followers (more likely to engage)
+- Those who share tactical/practical content
 
 Output format:
 {
@@ -35,6 +45,81 @@ Output format:
 }
 
 Respond in JSON only. No markdown, no backticks."""
+
+
+def _build_parse_prompt(seed_handles: list[str], podcast_description: str) -> str:
+    """Build the parse prompt with optional context from seeds and podcast description."""
+
+    # If we have seeds, use a more targeted prompt
+    if seed_handles:
+        handles_str = ", ".join(seed_handles)
+        prompt = f"""You are finding podcast guests on Twitter similar to specific examples.
+
+The podcaster likes these accounts: {handles_str}
+
+{f"Podcast context: {podcast_description.strip()}" if podcast_description.strip() else ""}
+
+Based on these examples, suggest 10-15 SIMILAR Twitter accounts.
+
+Think about:
+- What topics do these example accounts tweet about?
+- What's their follower range (similar size)?
+- What makes them good podcast material?
+- Who else is in their network/niche?
+
+CRITICAL RULES:
+1. Do NOT suggest the example accounts themselves ({handles_str})
+2. Suggest REAL, EXISTING Twitter accounts only
+3. Think of lesser-known accounts in the same space, not just the famous ones
+4. Diversify - don't just suggest the most obvious names
+
+Output JSON only:
+{{"keywords": ["topic1", "topic2"], "role": "founder|investor|creator", "vibe": "tactical|storyteller", "handles": ["@handle1", "@handle2", ...]}}
+
+No markdown, no backticks, no explanation."""
+        return prompt
+
+    # No seeds - use the base prompt
+    prompt = PARSE_SYSTEM_PROMPT_BASE
+    if podcast_description.strip():
+        prompt = f"Podcast context: {podcast_description.strip()}\n\n" + prompt
+
+    return prompt
+
+ANALYZE_QUERY_PROMPT = """You are analyzing a podcast guest search query to determine if it needs clarification.
+
+A query is SPECIFIC ENOUGH if it includes at least 2 of these:
+1. Industry/domain (e.g., "SaaS", "AI", "fintech", "e-commerce")
+2. Role (e.g., "founder", "investor", "developer", "marketer")
+3. Specific characteristic (e.g., "bootstrapped", "raised Series A", "solo", "$1M ARR")
+4. Content style (e.g., "tactical advice", "storytelling", "contrarian takes")
+
+If the query is vague (e.g., "someone interesting", "a founder", "tech person"), generate 2-3 follow-up questions to clarify.
+
+Each question should have 3-4 concrete options that help narrow down the search.
+
+Respond in JSON:
+{
+  "needs_clarification": true/false,
+  "questions": [
+    {
+      "id": "industry",
+      "question": "What industry should they be in?",
+      "options": [
+        {"id": "saas", "label": "SaaS / Software"},
+        {"id": "ai", "label": "AI / Machine Learning"},
+        {"id": "fintech", "label": "Fintech"},
+        {"id": "ecommerce", "label": "E-commerce / DTC"}
+      ]
+    }
+  ]
+}
+
+If the query is specific enough, return:
+{"needs_clarification": false, "questions": []}
+
+No markdown, no backticks."""
+
 
 SCORE_SYSTEM_PROMPT = """You are evaluating whether a Twitter user would be a good podcast guest.
 
@@ -124,15 +209,18 @@ def _fallback_parse(raw_query: str) -> ParsedQuery:
         "guest",
     )
     lowered = raw_query.lower()
-    handles = ["@levelsio", "@marckohlbrugge", "@csallen", "@shl", "@ajlkn"]
+    # Use lesser-known but real handles as fallback
+    handles = ["@thisiskp_", "@jasonleow", "@dagorenouf", "@_rchase_", "@tomjacquesson"]
     if any(term in lowered for term in ["indie", "build in public", "solo"]):
-        handles.extend(["@dannypostmaa", "@arvidkahl", "@jonbstrong"])
+        handles.extend(["@AndreyAzimov", "@haborian", "@ianlandsman"])
     if any(term in lowered for term in ["investor", "vc", "fundraising"]):
-        handles.extend(["@paulg", "@sama", "@naval", "@jason"])
+        handles.extend(["@hunterwalk", "@laborvoices", "@chrija"])
     if any(term in lowered for term in ["ai", "ml", "machine learning"]):
-        handles.extend(["@ylecun", "@hardmaru", "@AndrewYNg"])
+        handles.extend(["@jeremyphoward", "@kabortz", "@dennybritz"])
     if any(term in lowered for term in ["dev tool", "developer", "plg"]):
-        handles.extend(["@guillarmand", "@adamwathan"])
+        handles.extend(["@swyx", "@cassidoo", "@kelseyhightower"])
+    if any(term in lowered for term in ["saas", "software", "b2b"]):
+        handles.extend(["@Patticus", "@aaborsel", "@robjama"])
 
     return ParsedQuery(
         keywords=keywords,
@@ -153,14 +241,31 @@ def _profile_text(profile_data: ProfileData) -> str:
     )
 
 
-async def parse_query(raw_query: str) -> ParsedQuery:
-    if use_mock_llm() or not os.getenv("ANTHROPIC_API_KEY"):
+async def parse_query(
+    raw_query: str,
+    seed_handles: list[str] | None = None,
+    podcast_description: str = ""
+) -> ParsedQuery:
+    seed_handles = seed_handles or []
+
+    if use_mock_llm():
+        logger.info("[LLM] Using mock mode (USE_MOCK_LLM=true)")
+        return _fallback_parse(raw_query)
+
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        logger.info("[LLM] No ANTHROPIC_API_KEY, using fallback")
         return _fallback_parse(raw_query)
 
     try:
-        content = await _claude_message(PARSE_SYSTEM_PROMPT, raw_query)
-        return ParsedQuery.model_validate(_json_from_text(content))
-    except Exception:
+        system_prompt = _build_parse_prompt(seed_handles, podcast_description)
+        logger.info(f"[LLM] Calling Claude with seeds={seed_handles}, desc={podcast_description[:50] if podcast_description else 'none'}")
+        content = await _claude_message(system_prompt, raw_query)
+        logger.info(f"[LLM] Claude response: {content[:200]}...")
+        result = ParsedQuery.model_validate(_json_from_text(content))
+        logger.info(f"[LLM] Parsed handles: {result.handles}")
+        return result
+    except Exception as e:
+        logger.error(f"[LLM] Error calling Claude: {e}, using fallback")
         return _fallback_parse(raw_query)
 
 
@@ -223,3 +328,77 @@ async def generate_outreach(user_query: str, profile_data: ProfileData) -> str:
         return content.strip().strip('"')
     except Exception:
         return _fallback_outreach(user_query, profile_data)
+
+
+def _fallback_analyze_query(raw_query: str) -> QueryAnalysisResult:
+    """Fallback analysis when LLM is unavailable - always requires clarification for short queries."""
+    words = raw_query.lower().split()
+    # Very simple heuristic: if query has fewer than 5 words, ask for clarification
+    if len(words) < 5:
+        return QueryAnalysisResult(
+            needs_clarification=True,
+            questions=[
+                FollowUpQuestion(
+                    id="industry",
+                    question="What industry should they be in?",
+                    type="single_choice",
+                    options=[
+                        QuestionOption(id="saas", label="SaaS / Software"),
+                        QuestionOption(id="ai", label="AI / Machine Learning"),
+                        QuestionOption(id="fintech", label="Fintech"),
+                        QuestionOption(id="ecommerce", label="E-commerce / DTC"),
+                    ]
+                ),
+                FollowUpQuestion(
+                    id="stage",
+                    question="What stage should they be at?",
+                    type="single_choice",
+                    options=[
+                        QuestionOption(id="bootstrapped", label="Bootstrapped / Indie"),
+                        QuestionOption(id="seed", label="Seed / Early Stage"),
+                        QuestionOption(id="growth", label="Series A+ / Growth"),
+                        QuestionOption(id="any", label="Any stage"),
+                    ]
+                ),
+            ]
+        )
+    return QueryAnalysisResult(needs_clarification=False, questions=[])
+
+
+async def analyze_query(raw_query: str) -> QueryAnalysisResult:
+    """Analyze if a query needs clarification and generate follow-up questions."""
+    logger.info(f"[LLM] Analyzing query: {raw_query}")
+
+    if use_mock_llm():
+        logger.info("[LLM] Using mock mode for query analysis")
+        return _fallback_analyze_query(raw_query)
+
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        logger.info("[LLM] No ANTHROPIC_API_KEY, using fallback analysis")
+        return _fallback_analyze_query(raw_query)
+
+    try:
+        content = await _claude_message(ANALYZE_QUERY_PROMPT, raw_query)
+        logger.info(f"[LLM] Query analysis response: {content[:300]}...")
+        data = _json_from_text(content)
+
+        # Parse questions with proper models
+        questions = []
+        for q in data.get("questions", []):
+            options = [QuestionOption(id=opt["id"], label=opt["label"]) for opt in q.get("options", [])]
+            questions.append(FollowUpQuestion(
+                id=q["id"],
+                question=q["question"],
+                type=q.get("type", "single_choice"),
+                options=options
+            ))
+
+        result = QueryAnalysisResult(
+            needs_clarification=data.get("needs_clarification", False),
+            questions=questions
+        )
+        logger.info(f"[LLM] Query analysis result: needs_clarification={result.needs_clarification}, num_questions={len(result.questions)}")
+        return result
+    except Exception as e:
+        logger.error(f"[LLM] Error analyzing query: {e}, using fallback")
+        return _fallback_analyze_query(raw_query)

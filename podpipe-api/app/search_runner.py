@@ -16,13 +16,15 @@ async def run_search(search_id: str, store: SearchStore) -> None:
         return
 
     user_query = managed.record.query
+    seed_handles = managed.record.seed_handles
+    podcast_description = managed.record.podcast_description
 
     try:
         await store.append_event(
             search_id,
             SearchEvent(type="status", message="Parsing your query...", step="parsing"),
         )
-        parsed = await parse_query(user_query)
+        parsed = await parse_query(user_query, seed_handles, podcast_description)
 
         async def on_status(message: str, step: str) -> None:
             await store.append_event(

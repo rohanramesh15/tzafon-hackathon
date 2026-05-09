@@ -12,8 +12,6 @@ export interface Guest {
   outreach_dm: string;
 }
 
-export type SearchState = 'empty' | 'searching' | 'done' | 'error';
-
 export interface SearchEventStatus {
   type: 'status';
   message: string;
@@ -37,3 +35,22 @@ export interface ActivityLogItem {
   timestamp: number;
   kind: 'status' | 'lead' | 'done';
 }
+
+export interface QuestionOption {
+  id: string;
+  label: string;
+}
+
+export interface FollowUpQuestion {
+  id: string;
+  question: string;
+  type: 'single_choice' | 'text';
+  options: QuestionOption[];
+}
+
+export interface AnalyzeQueryResponse {
+  needs_clarification: boolean;
+  questions: FollowUpQuestion[];
+}
+
+export type SearchState = 'empty' | 'clarifying' | 'searching' | 'done' | 'error';

@@ -1,8 +1,18 @@
 import { API_BASE_URL } from '../config';
-import { Guest } from '../types';
+import { Guest, AnalyzeQueryResponse } from '../types';
 
 export interface SearchStartResponse {
   search_id: string;
+}
+
+export async function analyzeQuery(query: string): Promise<AnalyzeQueryResponse> {
+  const res = await fetch(`${API_BASE_URL}/api/analyze-query`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query }),
+  });
+  if (!res.ok) throw new Error(`Analysis failed: ${res.statusText}`);
+  return res.json();
 }
 
 export interface SearchEventStatus {
@@ -28,11 +38,18 @@ export interface SearchEventError {
 
 export type SearchEvent = SearchEventStatus | SearchEventLead | SearchEventDone | SearchEventError;
 
-export async function startSearch(query: string): Promise<SearchStartResponse> {
+export interface SearchParams {
+  query: string;
+  seed_handles?: string[];
+  podcast_description?: string;
+  clarification_answers?: Record<string, string>;
+}
+
+export async function startSearch(params: SearchParams): Promise<SearchStartResponse> {
   const res = await fetch(`${API_BASE_URL}/api/search`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query }),
+    body: JSON.stringify(params),
   });
   if (!res.ok) throw new Error(`Search failed: ${res.statusText}`);
   return res.json();

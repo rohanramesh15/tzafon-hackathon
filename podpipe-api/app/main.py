@@ -10,9 +10,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from .csv_export import leads_to_csv
-from .models import SearchRequest, SearchResponse
+from .models import SearchRequest, SearchResponse, AnalyzeQueryRequest, AnalyzeQueryResponse
 from .search_runner import run_search
 from .store import SearchStore
+from .llm import analyze_query
 
 app = FastAPI(title="PodPipe API", version="0.1.0")
 app.add_middleware(
@@ -31,12 +32,27 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.post("/api/analyze-query", response_model=AnalyzeQueryResponse)
+async def analyze_query_endpoint(request: AnalyzeQueryRequest) -> AnalyzeQueryResponse:
+    """Analyze a query to determine if follow-up questions are needed."""
+    result = await analyze_query(request.query)
+    return AnalyzeQueryResponse(
+        needs_clarification=result.needs_clarification,
+        questions=result.questions
+    )
+
+
 @app.post("/api/search", response_model=SearchResponse)
 async def start_search(
     request: SearchRequest, background_tasks: BackgroundTasks
 ) -> SearchResponse:
     search_id = str(uuid4())
-    await store.create(search_id, request.query)
+    await store.create(
+        search_id,
+        request.query,
+        seed_handles=request.seed_handles,
+        podcast_description=request.podcast_description
+    )
     background_tasks.add_task(run_search, search_id, store)
     return SearchResponse(search_id=search_id)
 

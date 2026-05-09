@@ -15,6 +15,66 @@ Juicebox for podcast guest discovery. A podcaster types a natural language descr
 - [x] **Backend API (Person B)** — FastAPI server with `/health`, `POST /api/search`, SSE stream, CSV export; `parse_query` / `score_lead` / `generate_outreach` LLM logic; in-memory store; mock + real agent adapter
 - [x] **Agent Core (Person A)** — `run_agent` / `run_agent_async` / `AgentConfig` exposed; KERNEL browser + Northstar CUA wired up; tested end-to-end (`test_results_20260509_131029.json` shows 2 real leads extracted from `@levelsio` + `@marckohlbrugge`)
 - [ ] **Demo prep** — final 3-query rehearsal + screen recording backup still TODO
+- [ ] **Relevance Improvement (In Progress)** — Adding seed handles + podcast description for better LLM context
+
+---
+
+## Relevance Improvement (Phase 1)
+
+### Problem
+The current flow relies on Claude guessing Twitter handles from memory based on a vague query. Results are often generic (well-known accounts) rather than specifically relevant to the user's podcast.
+
+### Solution
+Give the LLM more context by collecting:
+1. **Seed handles** — 2-3 example Twitter accounts of ideal guests (or past guests)
+2. **Podcast description** — What the podcast is about, target audience, style
+
+### Changes Required
+
+#### Frontend (`frontend/src/`)
+- [ ] Add "Example guests" input field (comma-separated handles)
+- [ ] Add "Describe your podcast" textarea
+- [ ] Update `useGuestSearch` hook to pass new fields to API
+- [ ] Update `startSearch()` to include `seed_handles` and `podcast_description`
+
+#### Backend API (`podpipe-api/app/models.py`)
+- [ ] Update `SearchRequest` model:
+```python
+class SearchRequest(BaseModel):
+    query: str
+    seed_handles: list[str] = []           # NEW
+    podcast_description: str = ""          # NEW
+```
+
+#### Backend LLM (`podpipe-api/app/llm.py`)
+- [ ] Update `parse_query()` to accept and use seed handles + podcast description
+- [ ] Update `PARSE_SYSTEM_PROMPT` to include context:
+```
+Podcast context: {podcast_description}
+Example ideal guests: {seed_handles}
+
+Based on these examples, suggest 10-15 SIMILAR Twitter handles.
+Think about what topics the example accounts tweet about, their follower range,
+and what makes them good podcast material.
+
+Suggest accounts SIMILAR to the examples, not the examples themselves.
+```
+
+#### API Contract Update
+
+`POST /api/search` — Updated request body:
+```json
+{
+  "query": "bootstrapped SaaS founder who gives tactical advice",
+  "seed_handles": ["@levelsio", "@csallen"],
+  "podcast_description": "We interview founders about their first $10K MRR journey"
+}
+```
+
+### Expected Outcome
+- LLM has concrete examples to pattern-match against
+- Suggestions will be more targeted (similar follower count, similar topics, similar style)
+- Even if LLM hallucinates some handles, the agent skips invalid ones gracefully
 
 ---
 

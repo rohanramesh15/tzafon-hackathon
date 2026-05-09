@@ -15,8 +15,19 @@ class SearchStore:
     def __init__(self) -> None:
         self._searches: dict[str, ManagedSearch] = {}
 
-    async def create(self, search_id: str, query: str) -> SearchRecord:
-        record = SearchRecord(id=search_id, query=query)
+    async def create(
+        self,
+        search_id: str,
+        query: str,
+        seed_handles: list[str] | None = None,
+        podcast_description: str = ""
+    ) -> SearchRecord:
+        record = SearchRecord(
+            id=search_id,
+            query=query,
+            seed_handles=seed_handles or [],
+            podcast_description=podcast_description
+        )
         self._searches[search_id] = ManagedSearch(record=record)
         return record
 

@@ -10,13 +10,53 @@ SearchStatus = Literal["running", "completed", "failed"]
 EventType = Literal["status", "lead", "done", "error"]
 
 
+class QuestionOption(BaseModel):
+    id: str
+    label: str
+
+
+class FollowUpQuestion(BaseModel):
+    id: str
+    question: str
+    type: str = "single_choice"  # "single_choice" or "text"
+    options: list[QuestionOption] = Field(default_factory=list)
+
+
+class QueryAnalysisResult(BaseModel):
+    needs_clarification: bool
+    questions: list[FollowUpQuestion] = Field(default_factory=list)
+    ready_to_search: bool = False
+
+
+class AnalyzeQueryRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=500)
+
+
+class AnalyzeQueryResponse(BaseModel):
+    needs_clarification: bool
+    questions: list[FollowUpQuestion] = Field(default_factory=list)
+
+
 class SearchRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=500)
+    seed_handles: list[str] = Field(default_factory=list)
+    podcast_description: str = ""
+    clarification_answers: dict[str, str] = Field(default_factory=dict)  # question_id -> answer
 
     @field_validator("query")
     @classmethod
     def normalize_query(cls, value: str) -> str:
         return value.strip()
+
+    @field_validator("seed_handles")
+    @classmethod
+    def normalize_seed_handles(cls, value: list[str]) -> list[str]:
+        cleaned = []
+        for h in value:
+            handle = h.strip().lstrip("@")
+            if handle:
+                cleaned.append(f"@{handle}")
+        return cleaned[:5]  # Max 5 seed handles
 
 
 class SearchResponse(BaseModel):
@@ -84,6 +124,8 @@ class SearchEvent(BaseModel):
 class SearchRecord(BaseModel):
     id: str
     query: str
+    seed_handles: list[str] = Field(default_factory=list)
+    podcast_description: str = ""
     status: SearchStatus = "running"
     events: list[SearchEvent] = Field(default_factory=list)
     leads: list[ScoredLead] = Field(default_factory=list)
