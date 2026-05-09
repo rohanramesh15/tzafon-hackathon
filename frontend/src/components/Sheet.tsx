@@ -2,168 +2,114 @@ import {
   createContext,
   useContext,
   useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
+  useMemo,
   type HTMLAttributes,
   type ReactNode,
 } from 'react';
-import { createPortal } from 'react-dom';
 
-function cx(...parts: Array<string | undefined>): string {
-  return parts.filter(Boolean).join(' ');
-}
+type SheetSide = 'right' | 'left' | 'top' | 'bottom';
 
 type SheetContextValue = {
+  open: boolean;
   onOpenChange: (open: boolean) => void;
 };
 
 const SheetContext = createContext<SheetContextValue | null>(null);
 
-type SheetProps = {
+export function Sheet({
+  open,
+  onOpenChange,
+  children,
+}: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   children: ReactNode;
-};
-
-export function Sheet({ open, onOpenChange, children }: SheetProps) {
-  const [mounted, setMounted] = useState(false);
-  const suppressBackdropCloseRef = useRef(false);
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    if (!open) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [open]);
-
-  useLayoutEffect(() => {
-    if (!open) return undefined;
-    suppressBackdropCloseRef.current = true;
-    let raf2 = 0;
-    const raf1 = requestAnimationFrame(() => {
-      raf2 = requestAnimationFrame(() => {
-        suppressBackdropCloseRef.current = false;
-      });
-    });
-    return () => {
-      cancelAnimationFrame(raf1);
-      cancelAnimationFrame(raf2);
-    };
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onOpenChange(false);
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [open, onOpenChange]);
-
-  const closeBackdrop = () => {
-    if (suppressBackdropCloseRef.current) return;
-    onOpenChange(false);
-  };
-
-  if (!open || !mounted) return null;
-
-  return createPortal(
-    <SheetContext.Provider value={{ onOpenChange }}>
-      <div
-        className="fixed inset-0 z-[100]"
-        role="dialog"
-        aria-modal="true">
-        <div
-          className="fixed inset-0 z-[100] bg-black/80"
-          onMouseDown={(e) => {
-            if (e.target === e.currentTarget) closeBackdrop();
-          }}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) closeBackdrop();
-          }}
-          aria-hidden
-        />
-        {children}
-      </div>
-    </SheetContext.Provider>,
-    document.body
+}) {
+  const value = useMemo(() => ({ open, onOpenChange }), [open, onOpenChange]);
+  return (
+    <SheetContext.Provider value={value}>{children}</SheetContext.Provider>
   );
 }
 
-type SheetContentProps = HTMLAttributes<HTMLDivElement> & {
-  side?: 'top' | 'right' | 'bottom' | 'left';
-};
+function sidePlacement(side: SheetSide): string {
+  switch (side) {
+    case 'left':
+      return 'inset-y-0 left-0 h-full';
+    case 'top':
+      return 'top-0 left-0 right-0 max-h-[85vh]';
+    case 'bottom':
+      return 'bottom-0 left-0 right-0 max-h-[85vh]';
+    case 'right':
+    default:
+      return 'inset-y-0 right-0 h-full';
+  }
+}
 
 export function SheetContent({
   side = 'right',
   className,
   children,
-  onMouseDown,
-  onClick,
   ...props
-}: SheetContentProps) {
+}: HTMLAttributes<HTMLDivElement> & { side?: SheetSide }) {
   const ctx = useContext(SheetContext);
-  if (!ctx) {
-    throw new Error('SheetContent must be used within Sheet');
-  }
 
-  const sideClass =
-    side === 'right'
-      ? 'inset-y-0 right-0 h-full border-l'
-      : side === 'left'
-        ? 'inset-y-0 left-0 h-full border-r'
-        : side === 'top'
-          ? 'inset-x-0 top-0 max-h-[90vh] border-b'
-          : 'inset-x-0 bottom-0 max-h-[90vh] border-t';
+  useEffect(() => {
+    if (!ctx?.open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [ctx?.open]);
+
+  useEffect(() => {
+    if (!ctx?.open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') ctx.onOpenChange(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [ctx]);
+
+  if (!ctx?.open) return null;
 
   return (
-    <div
-      className={cx(
-        'fixed z-[110] flex flex-col bg-background shadow-lg outline-none',
-        sideClass,
-        className
-      )}
-      onMouseDown={(e) => {
-        onMouseDown?.(e);
-        e.stopPropagation();
-      }}
-      onClick={(e) => {
-        onClick?.(e);
-        e.stopPropagation();
-      }}
-      {...props}>
-      {children}
-    </div>
+    <>
+      <button
+        type="button"
+        aria-label="Close panel"
+        className="fixed inset-0 z-40 bg-black/40"
+        onClick={() => ctx.onOpenChange(false)}
+      />
+      <div
+        role="dialog"
+        aria-modal
+        {...props}
+        className={`fixed z-50 flex flex-col bg-background shadow-lg ${sidePlacement(side)} ${className ?? ''}`}
+      >
+        {children}
+      </div>
+    </>
   );
 }
 
-export function SheetHeader({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
-  return (
-    <div
-      className={cx('flex flex-col gap-2 text-left', className)}
-      {...props}
-    />
-  );
+export function SheetHeader({
+  className,
+  ...props
+}: HTMLAttributes<HTMLDivElement>) {
+  return <div {...props} className={className} />;
 }
 
-export function SheetTitle({ className, ...props }: HTMLAttributes<HTMLHeadingElement>) {
-  return (
-    <h2 className={cx('text-lg font-semibold text-foreground', className)} {...props} />
-  );
+export function SheetTitle({
+  className,
+  ...props
+}: HTMLAttributes<HTMLHeadingElement>) {
+  return <h2 {...props} className={className} />;
 }
 
 export function SheetDescription({
   className,
   ...props
 }: HTMLAttributes<HTMLParagraphElement>) {
-  return (
-    <p className={cx('text-sm text-muted-foreground', className)} {...props} />
-  );
+  return <p {...props} className={className} />;
 }

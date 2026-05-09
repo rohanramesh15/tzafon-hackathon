@@ -1,12 +1,23 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Guest, SearchState } from '../types';
+import {
+  Guest,
+  SearchEvent,
+  SearchEventDone,
+  SearchState } from
+'../types';
+
+// Toggle this to switch between the mocked stream and the real backend.
+// Backend contract:
+//   POST /api/search                  -> { search_id }
+//   GET  /api/search/:id/stream       -> SSE: status | lead | done events
+//   GET  /api/search/:id/export       -> CSV download
+const USE_MOCK = true;
 
 const MOCK_STATUSES = [
-'Parsing your brief…',
-'Searching Twitter for relevant profiles…',
-'Analyzing 247 candidate accounts…',
-'Scoring topical relevance & engagement…',
-'Drafting personalized outreach…'];
+'Reading your description',
+'Searching Twitter',
+'Scoring matches',
+'Writing outreach'];
 
 
 const MOCK_GUESTS: Guest[] = [
@@ -41,7 +52,7 @@ const MOCK_GUESTS: Guest[] = [
   match_reason: 'Transparent revenue updates and concrete scaling tactics.',
   recent_tweets: [
   'Hit $45k MRR this month. Took 4 years. Still a team of one. The compounding is real.',
-  'Most "growth hacks" don\'t work for boring B2B SaaS. SEO and patience do.',
+  "Most growth hacks don't work for boring B2B SaaS. SEO and patience do.",
   "Outsourcing customer support to AI saved me 12 hours a week. Here's the prompt I use."],
 
   outreach_dm:
@@ -112,7 +123,7 @@ const MOCK_GUESTS: Guest[] = [
   profile_image_url: 'https://i.pravatar.cc/150?img=52',
   match_score: 90,
   match_reason:
-  'Built Transistor; deeply understands podcasting AND bootstrapping.',
+  'Built Transistor; deeply understands podcasting and bootstrapping.',
   recent_tweets: [
   'Most SaaS advice is written by people who raised. Different game, different rules.',
   'Your podcast is a relationship engine, not a marketing channel. Treat it accordingly.',
@@ -130,7 +141,7 @@ const MOCK_GUESTS: Guest[] = [
   followers: 198000,
   profile_image_url: 'https://i.pravatar.cc/150?img=59',
   match_score: 76,
-  match_reason: 'Strong founder voice; less tactical, more philosophical.',
+  match_reason: 'Strong founder voice; more philosophical than tactical.',
   recent_tweets: [
   "Most companies fail because they try to grow before they're needed.",
   'Profitability is the ultimate validation. Everything else is theater.',
@@ -141,20 +152,71 @@ const MOCK_GUESTS: Guest[] = [
 }];
 
 
+export interface ActivityLogItem {
+  id: string;
+  message: string;
+  timestamp: number;
+  kind: 'status' | 'lead' | 'done';
+}
+
 export function useGuestSearch() {
   const [state, setState] = useState<SearchState>('empty');
   const [query, setQuery] = useState('');
   const [searchId, setSearchId] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>('');
+  const [activityLog, setActivityLog] = useState<ActivityLogItem[]>([]);
   const [leads, setLeads] = useState<Guest[]>([]);
   const [error, setError] = useState<string | null>(null);
 
+  const eventSourceRef = useRef<EventSource | null>(null);
   const timeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const cleanup = useCallback(() => {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
     timeoutsRef.current.forEach((t) => clearTimeout(t));
     timeoutsRef.current = [];
   }, []);
+
+  const appendLog = useCallback(
+    (kind: ActivityLogItem['kind'], message: string) => {
+      setActivityLog((prev) => [
+      ...prev,
+      {
+        id: `${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        message,
+        timestamp: Date.now(),
+        kind
+      }]
+      );
+    },
+    []
+  );
+
+  // Single SSE event handler — used by both mock and real-backend paths.
+  const handleEvent = useCallback(
+    (evt: SearchEvent) => {
+      if (evt.type === 'status') {
+        setStatusMessage(evt.message);
+        appendLog('status', evt.message);
+      } else if (evt.type === 'lead') {
+        setLeads((prev) => [...prev, evt.data]);
+        appendLog(
+          'lead',
+          `Found ${evt.data.name} · ${evt.data.match_score}% match`
+        );
+      } else if (evt.type === 'done') {
+        setState('done');
+        const doneMsg = `Done · ${evt.total_leads} guests found`;
+        setStatusMessage(doneMsg);
+        appendLog('done', doneMsg);
+        cleanup();
+      }
+    },
+    [appendLog, cleanup]
+  );
 
   useEffect(() => {
     return cleanup;
@@ -165,40 +227,104 @@ export function useGuestSearch() {
     timeoutsRef.current.push(id);
   };
 
+  // ─── Mock implementation ──────────────────────────────────────────
+  const startMockStream = useCallback(
+    () => {
+      MOCK_STATUSES.forEach((message, i) => {
+        schedule(() => handleEvent({ type: 'status', message }), i * 700);
+      });
+
+      const leadsStartDelay = MOCK_STATUSES.length * 700;
+      MOCK_GUESTS.forEach((guest, i) => {
+        schedule(
+          () => handleEvent({ type: 'lead', data: guest }),
+          leadsStartDelay + i * 300
+        );
+      });
+
+      const doneDelay = leadsStartDelay + MOCK_GUESTS.length * 300 + 200;
+      schedule(() => {
+        const evt: SearchEventDone = {
+          type: 'done',
+          total_leads: MOCK_GUESTS.length
+        };
+        handleEvent(evt);
+      }, doneDelay);
+    },
+    [handleEvent]
+  );
+
+  // ─── Real backend implementation ──────────────────────────────────
+  const startRealStream = useCallback(
+    (newSearchId: string) => {
+      const es = new EventSource(`/api/search/${newSearchId}/stream`);
+      eventSourceRef.current = es;
+
+      es.onmessage = (event) => {
+        try {
+          const parsed: SearchEvent = JSON.parse(event.data);
+          handleEvent(parsed);
+        } catch (err) {
+          console.error('Failed to parse SSE event', err);
+        }
+      };
+
+      es.onerror = () => {
+        setError('Connection lost while searching. Please try again.');
+        setState('error');
+        cleanup();
+      };
+    },
+    [handleEvent, cleanup]
+  );
+
   const startSearch = useCallback(
-    (searchQuery: string) => {
+    async (searchQuery: string) => {
       if (!searchQuery.trim()) return;
 
       cleanup();
       setState('searching');
       setQuery(searchQuery);
       setLeads([]);
+      setActivityLog([]);
       setError(null);
-      setStatusMessage(MOCK_STATUSES[0]);
-      setSearchId(`mock_${Date.now()}`);
+      setStatusMessage('');
 
-      // Cycle through status messages
-      MOCK_STATUSES.forEach((msg, i) => {
-        schedule(() => setStatusMessage(msg), i * 750);
-      });
+      try {
+        let newSearchId: string;
 
-      // After statuses complete, stream leads
-      const leadsStartDelay = MOCK_STATUSES.length * 750;
-      MOCK_GUESTS.forEach((guest, i) => {
-        schedule(
-          () => setLeads((prev) => [...prev, guest]),
-          leadsStartDelay + i * 350
-        );
-      });
+        if (USE_MOCK) {
+          newSearchId = `mock_${Date.now()}`;
+        } else {
+          const response = await fetch('/api/search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query: searchQuery })
+          });
+          if (!response.ok) {
+            throw new Error(`Search failed: ${response.statusText}`);
+          }
+          const data: {search_id: string;} = await response.json();
+          if (!data.search_id) throw new Error('No search_id returned');
+          newSearchId = data.search_id;
+        }
 
-      // Done
-      const doneDelay = leadsStartDelay + MOCK_GUESTS.length * 350 + 200;
-      schedule(() => {
-        setState('done');
-        setStatusMessage('Search complete');
-      }, doneDelay);
+        setSearchId(newSearchId);
+
+        if (USE_MOCK) {
+          startMockStream();
+        } else {
+          startRealStream(newSearchId);
+        }
+      } catch (err: unknown) {
+        const message =
+          err instanceof Error ? err.message : 'An unexpected error occurred';
+        setError(message);
+        setState('error');
+        cleanup();
+      }
     },
-    [cleanup]
+    [cleanup, startMockStream, startRealStream]
   );
 
   const reset = useCallback(() => {
@@ -207,12 +333,18 @@ export function useGuestSearch() {
     setQuery('');
     setSearchId(null);
     setStatusMessage('');
+    setActivityLog([]);
     setLeads([]);
     setError(null);
   }, [cleanup]);
 
   const exportCsv = useCallback(() => {
-    if (leads.length === 0) return;
+    if (!searchId || leads.length === 0) return;
+
+    if (!USE_MOCK) {
+      window.location.href = `/api/search/${searchId}/export`;
+      return;
+    }
 
     const headers = [
     'name',
@@ -247,12 +379,12 @@ export function useGuestSearch() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `podpipe-guests-${Date.now()}.csv`;
+    a.download = `podpipe-${searchId}.csv`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-  }, [leads]);
+  }, [searchId, leads]);
 
   return {
     state,
@@ -260,6 +392,7 @@ export function useGuestSearch() {
     setQuery,
     searchId,
     statusMessage,
+    activityLog,
     leads,
     error,
     startSearch,
