@@ -10,7 +10,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
 from .csv_export import leads_to_csv
-from .models import SearchRequest, SearchResponse
+from .llm import detect_filters
+from .models import DetectFiltersRequest, DetectFiltersResponse, SearchRequest, SearchResponse
 from .search_runner import run_search
 from .store import SearchStore
 
@@ -29,6 +30,12 @@ store = SearchStore()
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.post("/api/detect-filters", response_model=DetectFiltersResponse)
+async def detect_filters_endpoint(request: DetectFiltersRequest) -> DetectFiltersResponse:
+    filters = await detect_filters(request.query)
+    return DetectFiltersResponse(filters=filters)
 
 
 @app.post("/api/search", response_model=SearchResponse)

@@ -50,6 +50,24 @@ Score based on:
 
 Respond in JSON only. No markdown, no backticks."""
 
+DETECT_FILTERS_PROMPT = """You are a filter extractor for a podcast guest search tool.
+
+Given a natural language description of who the podcaster wants as a guest, extract values for these filters:
+- Location: geographic location (city, country, region) or "Remote" if remote work is mentioned. null if not mentioned.
+- Topic: main topic(s) the person talks or writes about. null if not clear.
+- Audience size: any indication of follower count or audience scale (e.g. "100k followers", "niche", "large following"). null if not mentioned.
+- Industry: domain or industry they work in (e.g. "SaaS", "AI", "Healthcare"). null if not clear.
+- Recently active: return "yes" if recency of posting/activity is mentioned, otherwise null.
+
+Return a single JSON object. All five keys must be present. Values are strings or null.
+
+Example input: "A Kenya-based AI founder posting frequently about SaaS growth"
+Example output:
+{"Location":"Kenya","Topic":"AI / SaaS growth","Audience size":null,"Industry":"SaaS","Recently active":"yes"}
+
+Respond with JSON only. No markdown, no backticks, no explanation."""
+
+
 OUTREACH_SYSTEM_PROMPT = """Write a short Twitter DM (3-4 sentences) inviting this person to be a podcast guest.
 
 Rules:
@@ -151,6 +169,66 @@ def _profile_text(profile_data: ProfileData) -> str:
         f"Followers: {profile_data.followers}\n"
         f"Recent tweets:\n{tweets}"
     )
+
+
+def _fallback_detect_filters(query: str) -> dict[str, str | None]:
+    q = query.lower()
+
+    location_terms = [
+        "remote", "kenya", "nairobi", "nigeria", "lagos", "ghana", "south africa",
+        "usa", "united states", "new york", "san francisco", "uk", "london",
+        "europe", "africa", "asia", "india", "canada", "australia", "berlin",
+        "paris", "tokyo", "singapore", "dubai", "amsterdam",
+    ]
+    location = next((t.title() for t in location_terms if re.search(rf"\b{re.escape(t)}\b", q)), None)
+
+    topic_keywords = [
+        "ai", "machine learning", "crypto", "blockchain", "climate", "fintech",
+        "saas", "web3", "startups", "entrepreneurship", "investing", "fundraising",
+        "growth", "marketing", "product", "design",
+    ]
+    topic = next((t.upper() if len(t) <= 3 else t.title() for t in topic_keywords if re.search(rf"\b{re.escape(t)}\b", q)), None)
+    if not topic:
+        m = re.search(r"(?:about|discusses?|talks? about|covers?)\s+(\w+(?:\s+\w+)?)", q)
+        topic = m.group(1).title() if m else None
+
+    audience = next((m.group(0) for p in [
+        r"\b\d+k\b", r"\b\d+,\d{3}\+?\s*followers?\b", r"\bmicro[\s-]influencer\b",
+        r"\blarge audience\b", r"\bniche audience\b",
+    ] if (m := re.search(p, q))), None)
+
+    industry_terms = [
+        "saas", "fintech", "healthtech", "edtech", "biotech", "crypto", "web3",
+        "media", "finance", "healthcare", "education", "retail", "consulting", "gaming",
+    ]
+    industry = next((t.title() for t in industry_terms if re.search(rf"\b{re.escape(t)}\b", q)), None)
+    if not industry and re.search(r"\btech(?:nology)?\b", q):
+        industry = "Tech"
+
+    recently_active = "yes" if re.search(
+        r"\b(recently|active|posts?\s+(?:regularly|often|frequently)|last\s+(?:week|month|year)|this\s+(?:week|month|year))\b", q
+    ) else None
+
+    return {
+        "Location": location,
+        "Topic": topic,
+        "Audience size": audience,
+        "Industry": industry,
+        "Recently active": recently_active,
+    }
+
+
+async def detect_filters(query: str) -> dict[str, str | None]:
+    if use_mock_llm() or not os.getenv("ANTHROPIC_API_KEY"):
+        return _fallback_detect_filters(query)
+
+    try:
+        content = await _claude_message(DETECT_FILTERS_PROMPT, query)
+        raw = _json_from_text(content)
+        keys = ["Location", "Topic", "Audience size", "Industry", "Recently active"]
+        return {k: raw.get(k) or None for k in keys}
+    except Exception:
+        return _fallback_detect_filters(query)
 
 
 async def parse_query(raw_query: str) -> ParsedQuery:

@@ -29,8 +29,9 @@ export function Home() {
   const [selectedGuest, setSelectedGuest] = useState<Guest | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
   const [scoreFilter, setScoreFilter] = useState<ScoreFilter>('all');
-  const handleSearch = () => {
+  const handleSearch = (filters: Record<string, string | null>) => {
     if (!query.trim()) return;
+    console.log('filters', filters);
     startSearch(query);
   };
   const handleSelectGuest = (guest: Guest) => {
