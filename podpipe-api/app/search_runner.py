@@ -24,7 +24,7 @@ async def run_search(search_id: str, store: SearchStore) -> None:
             search_id,
             SearchEvent(type="status", message="Parsing your query...", step="parsing"),
         )
-        parsed = await parse_query(user_query, seed_handles, podcast_description)
+        parsed = await parse_query(user_query)
 
         async def on_status(message: str, step: str) -> None:
             await store.append_event(

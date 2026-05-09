@@ -1,14 +1,10 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { Guest, SearchState, ActivityLogItem, FollowUpQuestion } from '../types';
-import { startSearch as apiStartSearch, analyzeQuery, getStreamUrl, getExportUrl, SearchEvent, SearchEventDone, SearchEventError, SearchParams } from '../api/search';
+import { Guest, SearchState, ActivityLogItem } from '../types';
+import { startSearch as apiStartSearch, getStreamUrl, getExportUrl, SearchEvent, SearchEventDone, SearchEventError, SearchParams } from '../api/search';
 
 export function useStartSearch() {
   return useMutation({ mutationFn: (params: SearchParams) => apiStartSearch(params) });
-}
-
-export function useAnalyzeQuery() {
-  return useMutation({ mutationFn: (query: string) => analyzeQuery(query) });
 }
 
 const MOCK_STATUSES = [
@@ -86,15 +82,10 @@ export function useGuestSearch() {
   const [leads, setLeads] = useState<Guest[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  // Clarification state
-  const [followUpQuestions, setFollowUpQuestions] = useState<FollowUpQuestion[]>([]);
-  const [clarificationAnswers, setClarificationAnswers] = useState<Record<string, string>>({});
-
   const eventSourceRef = useRef<EventSource | null>(null);
   const timeoutsRef = useRef<ReturnType<typeof setTimeout>[]>([]);
 
   const startSearchMutation = useStartSearch();
-  const analyzeQueryMutation = useAnalyzeQuery();
 
   const cleanup = useCallback(() => {
     if (eventSourceRef.current) {
@@ -189,27 +180,17 @@ export function useGuestSearch() {
     [handleEvent, cleanup]
   );
 
-  // Enrich the query with clarification answers
-  const buildEnrichedQuery = useCallback((baseQuery: string, answers: Record<string, string>): string => {
-    if (Object.keys(answers).length === 0) return baseQuery;
+  const startSearch = useCallback(
+    async (searchQuery: string) => {
+      if (!searchQuery.trim()) return;
 
-    const answerText = Object.entries(answers)
-      .map(([_, value]) => value)
-      .join(', ');
-
-    return `${baseQuery}. Additional context: ${answerText}`;
-  }, []);
-
-  // Execute the actual search (called after clarification or if no clarification needed)
-  const executeSearch = useCallback(
-    async (searchQuery: string, answers: Record<string, string> = {}) => {
+      cleanup();
       setState('searching');
+      setQuery(searchQuery);
       setLeads([]);
       setActivityLog([]);
       setError(null);
       setStatusMessage('');
-
-      const enrichedQuery = buildEnrichedQuery(searchQuery, answers);
 
       try {
         let newSearchId: string;
@@ -217,10 +198,7 @@ export function useGuestSearch() {
         if (USE_MOCK) {
           newSearchId = `mock_${Date.now()}`;
         } else {
-          const data = await startSearchMutation.mutateAsync({
-            query: enrichedQuery,
-            clarification_answers: answers,
-          });
+          const data = await startSearchMutation.mutateAsync({ query: searchQuery });
           newSearchId = data.search_id;
         }
 
@@ -238,66 +216,8 @@ export function useGuestSearch() {
         cleanup();
       }
     },
-    [buildEnrichedQuery, startMockStream, startRealStream, startSearchMutation, cleanup]
+    [cleanup, startMockStream, startRealStream, startSearchMutation]
   );
-
-  // Initial search - analyzes query first
-  const startSearch = useCallback(
-    async (searchQuery: string) => {
-      if (!searchQuery.trim()) return;
-
-      cleanup();
-      setQuery(searchQuery);
-      setFollowUpQuestions([]);
-      setClarificationAnswers({});
-      setLeads([]);
-      setActivityLog([]);
-      setError(null);
-      setStatusMessage('Analyzing your query...');
-      setState('searching');
-
-      try {
-        if (USE_MOCK) {
-          // In mock mode, skip clarification
-          await executeSearch(searchQuery);
-          return;
-        }
-
-        // Analyze the query first
-        const analysis = await analyzeQueryMutation.mutateAsync(searchQuery);
-
-        if (analysis.needs_clarification && analysis.questions.length > 0) {
-          // Show follow-up questions
-          setFollowUpQuestions(analysis.questions);
-          setState('clarifying');
-          setStatusMessage('');
-        } else {
-          // Query is specific enough, proceed with search
-          await executeSearch(searchQuery);
-        }
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : 'An unexpected error occurred';
-        setError(message);
-        setState('error');
-        cleanup();
-      }
-    },
-    [cleanup, executeSearch, analyzeQueryMutation]
-  );
-
-  // Submit clarification answers and continue search
-  const submitClarifications = useCallback(
-    async (answers: Record<string, string>) => {
-      setClarificationAnswers(answers);
-      await executeSearch(query, answers);
-    },
-    [query, executeSearch]
-  );
-
-  // Skip clarification and search anyway
-  const skipClarification = useCallback(async () => {
-    await executeSearch(query);
-  }, [query, executeSearch]);
 
   const reset = useCallback(() => {
     cleanup();
@@ -308,8 +228,6 @@ export function useGuestSearch() {
     setActivityLog([]);
     setLeads([]);
     setError(null);
-    setFollowUpQuestions([]);
-    setClarificationAnswers({});
   }, [cleanup]);
 
   const exportCsv = useCallback(() => {
@@ -351,11 +269,7 @@ export function useGuestSearch() {
     activityLog,
     leads,
     error,
-    followUpQuestions,
-    clarificationAnswers,
     startSearch,
-    submitClarifications,
-    skipClarification,
     reset,
     exportCsv,
   };
