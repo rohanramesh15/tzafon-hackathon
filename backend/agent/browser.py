@@ -7,7 +7,8 @@ import os
 from typing import Optional, Callable
 from dotenv import load_dotenv
 
-# Load environment variables
+# Load environment variables — prefer backend/.env (single source of truth)
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 load_dotenv()
 
 

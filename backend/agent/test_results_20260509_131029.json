@@ -1,0 +1,47 @@
+{
+  "leads": [
+    {
+      "name": "@levelsio",
+      "twitter_handle": "@levelsio",
+      "twitter_url": "https://twitter.com/levelsio",
+      "bio": "",
+      "followers": 3063,
+      "profile_image_url": "visible",
+      "recent_tweets": [
+        "So @loaibassam asked me my stack recently, I replied:",
+        "FREE: Nginx web server on Ubuntu (free)",
+        "Auto upgrade with unattended-upgrade (free) Scheduled workers with Cron (free)",
+        "Vanilla PHP for site backend (free)",
+        "Vanilla CSS (free)"
+      ]
+    },
+    {
+      "name": "Marc K\u00f6hlbrugge",
+      "twitter_handle": "@marckohlbrugge",
+      "twitter_url": "https://twitter.com/marckohlbrugge",
+      "bio": "wip.co \ud83c\udfe0 roomai.com \ud83d\ude01 highscore.money \ud83d\ude80 handle.horse \ud83d\ude80 betalist.com traits.xyz \ud83d\udc8e submit.co \ud83d\udcdd startup.com \ud83e\udd4b yay.camera \ud83e\udd41 buildinpublic.com \ud83e\udd6b wip.co/marc Joined January 2007",
+      "followers": 81900,
+      "profile_image_url": "visible",
+      "recent_tweets": [
+        "X is shutting down Communities on May 6.",
+        "Ours, #buildinpublic with 250,000+ members, is one of the largest affected. It's not going anywhere.",
+        "We're building a new home for it. Reserve your spot (and your username) before May 6: X Communities is going away. We are not.",
+        "this will never make sense to me",
+        "Kindle $19.93 Available instantly Audiobook $0.00 with membership trial"
+      ]
+    }
+  ],
+  "statuses": [
+    "Initializing AI vision model...",
+    "Starting KERNEL cloud browser...",
+    "Browser ready (session: qd9ib36f...)",
+    "Analyzing @levelsio's profile...",
+    "Found lead: @levelsio (@levelsio)",
+    "Analyzing @arvidkahl's profile...",
+    "Could not extract @arvidkahl, skipping...",
+    "Analyzing @marckohlbrugge's profile...",
+    "Found lead: Marc K\u00f6hlbrugge (@marckohlbrugge)",
+    "Agent completed. Found 2 leads."
+  ],
+  "timestamp": "2026-05-09T13:10:29.434574"
+}

@@ -17,6 +17,7 @@ StatusCallback = Callable[[str, str], Awaitable[None]]
 LeadCallback = Callable[[ProfileData], Awaitable[None]]
 
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+load_dotenv(os.path.join(ROOT_DIR, ".env"))
 load_dotenv()
 load_dotenv(os.path.join(ROOT_DIR, "agent", ".env"))
 

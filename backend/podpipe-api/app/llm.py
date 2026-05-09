@@ -14,6 +14,7 @@ from app.models import ParsedQuery, ProfileData, ScoreResult
 logging.basicConfig(level=logging.INFO, stream=sys.stdout, force=True)
 logger = logging.getLogger(__name__)
 
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
 load_dotenv()
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", "agent", ".env"))
 
