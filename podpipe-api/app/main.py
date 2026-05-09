@@ -2,16 +2,17 @@ from __future__ import annotations
 
 import asyncio
 import json
+import uvicorn
 from uuid import uuid4
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
-from app.csv_export import leads_to_csv
-from app.models import SearchRequest, SearchResponse
-from app.search_runner import run_search
-from app.store import SearchStore
+from .csv_export import leads_to_csv
+from .models import SearchRequest, SearchResponse
+from .search_runner import run_search
+from .store import SearchStore
 
 app = FastAPI(title="PodPipe API", version="0.1.0")
 app.add_middleware(
@@ -75,3 +76,8 @@ async def export_search(search_id: str) -> Response:
         media_type="text/csv",
         headers={"Content-Disposition": 'attachment; filename="podpipe-leads.csv"'},
     )
+
+
+if __name__ == "__main__":
+
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
