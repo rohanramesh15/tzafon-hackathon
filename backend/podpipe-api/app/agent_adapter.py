@@ -10,7 +10,6 @@ from typing import Any
 from dotenv import load_dotenv
 from pydantic import ValidationError
 
-from app.mock_agent import run_agent_adapter as run_mock_agent_adapter
 from app.models import ProfileData
 
 StatusCallback = Callable[[str, str], Awaitable[None]]
@@ -38,22 +37,12 @@ async def run_agent_adapter(
     on_status: StatusCallback,
     on_lead: LeadCallback,
 ) -> None:
-    if os.getenv("USE_MOCK_AGENT", "auto").lower() in {"1", "true", "yes", "on"}:
-        await run_mock_agent_adapter(handles, on_status, on_lead)
-        return
-
     if ROOT_DIR not in sys.path:
         sys.path.insert(0, ROOT_DIR)
 
-    try:
-        agent = import_module("agent")
-        run_agent_async = getattr(agent, "run_agent_async")
-        agent_config = getattr(agent, "AgentConfig")(max_profiles=10, timeout_seconds=180)
-    except Exception:
-        if os.getenv("USE_MOCK_AGENT", "auto").lower() in {"0", "false", "no", "off"}:
-            raise
-        await run_mock_agent_adapter(handles, on_status, on_lead)
-        return
+    agent = import_module("agent")
+    run_agent_async = getattr(agent, "run_agent_async")
+    agent_config = getattr(agent, "AgentConfig")(max_profiles=10, timeout_seconds=180)
 
     pending_tasks: list[asyncio.Task[Any]] = []
 

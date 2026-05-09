@@ -92,10 +92,6 @@ Rules:
 Respond with the DM text only, no JSON, no quotes."""
 
 
-def use_mock_llm() -> bool:
-    return os.getenv("USE_MOCK_LLM", "true").lower() in {"1", "true", "yes", "on"}
-
-
 async def _claude_message(system_prompt: str, user_payload: str) -> str:
     from anthropic import AsyncAnthropic
 
@@ -234,9 +230,6 @@ def _fallback_detect_filters(query: str) -> dict[str, str | None]:
 
 
 async def detect_filters(query: str) -> dict[str, str | None]:
-    if use_mock_llm() or not os.getenv("ANTHROPIC_API_KEY"):
-        return _fallback_detect_filters(query)
-
     try:
         content = await _claude_message(DETECT_FILTERS_PROMPT, query)
         raw = _json_from_text(content)
@@ -247,9 +240,6 @@ async def detect_filters(query: str) -> dict[str, str | None]:
 
 
 async def parse_query(raw_query: str) -> ParsedQuery:
-    if use_mock_llm() or not os.getenv("ANTHROPIC_API_KEY"):
-        return _fallback_parse(raw_query)
-
     try:
         logger.info(f"[LLM] Calling Claude for query: {raw_query[:50]}...")
         content = await _claude_message(PARSE_SYSTEM_PROMPT_BASE, raw_query)
@@ -284,9 +274,6 @@ def _fallback_score(user_query: str, profile_data: ProfileData) -> ScoreResult:
 
 
 async def score_lead(user_query: str, profile_data: ProfileData) -> ScoreResult:
-    if use_mock_llm() or not os.getenv("ANTHROPIC_API_KEY"):
-        return _fallback_score(user_query, profile_data)
-
     payload = json.dumps(
         {"user_query": user_query, "profile_data": profile_data.model_dump()},
         ensure_ascii=True,
@@ -309,9 +296,6 @@ def _fallback_outreach(user_query: str, profile_data: ProfileData) -> str:
 
 
 async def generate_outreach(user_query: str, profile_data: ProfileData) -> str:
-    if use_mock_llm() or not os.getenv("ANTHROPIC_API_KEY"):
-        return _fallback_outreach(user_query, profile_data)
-
     payload = json.dumps(
         {"user_query": user_query, "profile_data": profile_data.model_dump()},
         ensure_ascii=True,

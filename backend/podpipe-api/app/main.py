@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import uvicorn
 from uuid import uuid4
 
@@ -15,10 +16,12 @@ from .models import DetectFiltersRequest, DetectFiltersResponse, SearchRequest, 
 from .search_runner import run_search
 from .store import SearchStore
 
+_cors_origins = [o.strip() for o in os.getenv("CORS_ORIGINS", "*").split(",")]
+
 app = FastAPI(title="PodPipe API", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
