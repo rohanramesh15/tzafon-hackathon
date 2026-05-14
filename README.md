@@ -7,9 +7,16 @@
 
 ---
 
-## Demo
+## Screenshots
 
-https://github.com/user-attachments/assets/demo.mov
+**Search Interface**
+![Home](./screenshots/home.png)
+
+**Results with Match Scores**
+![Results](./screenshots/results.png)
+
+**Guest Detail with Outreach DM**
+![Guest Detail](./screenshots/guest-detail.png)
 
 ---
 
